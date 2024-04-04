@@ -1,0 +1,4 @@
+name = "wq_robust_mpc"
+uuid = "c4005e7c-b73a-42d7-96a0-255b4720f2e6"
+authors = ["bradleywjenks <b.jenks21@imperial.ac.uk>"]
+version = "0.1.0"

@@ -1,5 +1,17 @@
 module wq_robust_mpc
 
-greet() = print("Hello World!")
+include("network.jl")
+include("plotting.jl")
+include("simulation.jl")
+
+
+# network.jl
+export load_network
+# simulation.jl
+export epanet_solver
+# plotting.jl
+export plot_network_layout, plot_network_sim, plot_timeseries_sim
+
+
 
 end # module wq_robust_mpc

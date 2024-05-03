@@ -1,0 +1,4 @@
+index,node_id,node_type,elev,xcoord,ycoord
+1,2,junction,213.36,1214.38,7243.02
+2,1,reservoir,0,404.76,7238.1
+3,3,tank,275.5392,1215.5,7929.94

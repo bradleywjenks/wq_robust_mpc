@@ -18,6 +18,7 @@ using Distributions
     head::Union{DataFrame, Nothing} = nothing
     demand::Union{DataFrame, Nothing} = nothing
     flow::Union{DataFrame, Nothing} = nothing
+    flowdir::Union{DataFrame, Nothing} = nothing
     velocity::Union{DataFrame, Nothing} = nothing
     chlorine::Union{DataFrame, Nothing} = nothing
     age::Union{DataFrame, Nothing} = nothing
@@ -30,6 +31,7 @@ Base.copy(r::SimResults) = SimResults(
     head=deepcopy(r.head),
     demand=deepcopy(r.demand),
     flow=deepcopy(r.flow),
+    flowdir=deepcopy(r.flowdir),
     velocity=deepcopy(r.velocity),
     chlorine=deepcopy(r.chlorine),
     age=deepcopy(r.age),
@@ -40,13 +42,18 @@ Base.copy(r::SimResults) = SimResults(
 """
 Main function for calling EPANET solver via WNTR Python package
 """
-function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_settings=nothing, cl_0=repeat([1.5], size(network.reservoir_idx, 1)), trace_node=network.node_names[network.reservoir_idx[1]])
+function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_settings=nothing, cl_0=repeat([1.5], size(network.reservoir_idx, 1)), trace_node=network.node_names[network.reservoir_idx[1]], sim_days=7)
 
     net_path = NETWORK_PATH * network.name * "/" * network.name * ".inp"
 
     # load network file via WNTR pacakge
     wntr = pyimport("wntr")
     wn = wntr.network.WaterNetworkModel(net_path)
+
+    # set simulation times
+    wn.options.time.duration = sim_days * 24 * 3600 # number of days set by user
+    wn.options.time.hydraulic_timestep = 3600 # 1-hour hydraulic time step
+    wn.options.time.quality_timestep = 60 * 5 # 5-minute water quality time step
 
     # # function for setting PRV settings
     # wn = set_pcv_settings(wntr, wn, network, prv_settings)
@@ -59,7 +66,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     # run hydraulic or water quality simulation
     if sim_type == "hydraulic"
         sim_results = epanet_hydraulic(network, wntr, wn)
-    elseif sim_type ∈ ["chlorine", "water age", "trace"]
+    elseif sim_type ∈ ["chlorine", "age", "trace"]
         sim_results = epanet_wq(network, wntr, wn, sim_type, trace_node, cl_0)
     else
         @error "Simulation type not recognized."
@@ -92,6 +99,13 @@ function epanet_hydraulic(network, wntr, wn)
     df_flow.timestamp = sim_time
     for col ∈ results.link["flowrate"].columns
         df_flow[!, col] = abs.(getproperty(results.link["flowrate"], col).values .* 1000) # convert to Lps
+    end
+
+    # obtain link flow direction
+    df_flowdir = DataFrame()
+    df_flowdir.timestamp = sim_time
+    for col ∈ results.link["flowrate"].columns
+        df_flowdir[!, col] = sign.(getproperty(results.link["flowrate"], col).values)
     end
 
     # obtain velocity at links
@@ -129,6 +143,7 @@ function epanet_hydraulic(network, wntr, wn)
         df_demand[!, col] = getproperty(results.node["demand"], col).values .* 1000 # convert to Lps
     end
 
+
     # create simulation results structure
     sim_results = SimResults(
         timestamp=sim_time[1:end-1],
@@ -136,7 +151,8 @@ function epanet_hydraulic(network, wntr, wn)
         head=df_head[1:end-1, :],
         demand=df_demand[1:end-1, :],
         flow=df_flow[1:end-1, :],
-        velocity=df_vel[1:end-1, :]
+        flowdir=df_flowdir[1:end-1, :],
+        velocity=df_vel[1:end-1, :],
     )
 
     return sim_results
@@ -146,7 +162,7 @@ end
 
 
 """
-Water quality simulation code.
+Water quality simulation code via EPANET solver.
 """
 function epanet_wq(network, wntr, wn, sim_type, trace_node, cl_0)
 
@@ -170,7 +186,7 @@ function epanet_wq(network, wntr, wn, sim_type, trace_node, cl_0)
         wn.options.reaction.bulk_coeff = (-0.5/3600/24) # units = 1/second
         wn.options.reaction.wall_coeff = (-0.1/3600/24) # units = 1/second
 
-    elseif sim_type == "water age"
+    elseif sim_type == "age"
 
         wn.options.quality.parameter = "AGE"
 
@@ -197,7 +213,7 @@ function epanet_wq(network, wntr, wn, sim_type, trace_node, cl_0)
             timestamp=sim_time[1:end-1],
             chlorine=df_qual[1:end-1, :]
         )
-    elseif sim_type == "water age"
+    elseif sim_type == "age"
         for col ∈ results.node["quality"].columns
             df_qual[!, col] = getproperty(results.node["quality"], col).values ./3600
         end
@@ -221,3 +237,12 @@ function epanet_wq(network, wntr, wn, sim_type, trace_node, cl_0)
     return sim_results
 
 end
+
+
+
+
+
+# """
+# Water quality solver code from scratch.
+# """
+# function wq_solver()

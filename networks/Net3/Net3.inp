@@ -228,8 +228,8 @@ UPDATE: Added coordinates for Junction 177
  323             	201             	275             	300         	12          	130         	0           	Open  	;
  325             	269             	271             	1290        	8           	130         	0           	Open  	;
  329             	61              	123             	45500       	30          	140         	0           	Open  	;
- 330             	60              	601             	1           	30          	140         	0           	Closed	;
- 333             	601             	61              	1           	30          	140         	0           	Open  	;
+ 330             	60              	601             	10          	60          	140         	0           	Closed	;
+ 333             	601             	61              	10          	60          	140         	0           	Open  	;
 
 [PUMPS]
 ;ID              	Node1           	Node2           	Parameters
@@ -278,11 +278,11 @@ UPDATE: Added coordinates for Junction 177
 
 [CURVES]
 ;ID              	X-Value     	Y-Value
-;PUMP: PUMP: Pump Curve for Pump 10 (Lake Source)
+;PUMP: PUMP: PUMP: PUMP: Pump Curve for Pump 10 (Lake Source)
  1               	0           	104.        
  1               	2000.       	92.         
  1               	4000.       	63.         
-;PUMP: PUMP: Pump Curve for Pump 335 (River Source)
+;PUMP: PUMP: PUMP: PUMP: Pump Curve for Pump 335 (River Source)
  2               	0           	200.        
  2               	8000.       	138.        
  2               	14000.      	86.         
@@ -313,7 +313,11 @@ Link 330 OPEN IF Node 1 ABOVE 19.1
 
 
 
+
+
 [RULES]
+
+
 
 
 [ENERGY]

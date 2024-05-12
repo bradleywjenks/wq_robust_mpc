@@ -10,6 +10,7 @@ using Colors
 using ColorSchemes
 using LaTeXStrings
 using DataFrames
+using Statistics
 
 # julia_colors = Colors.JULIA_LOGO_COLORS
 
@@ -107,7 +108,7 @@ end
 """
 Function to plot network layout with control elements (e.g. pumps and valves), reservoirs (inlets), and tanks
 """
-function plot_network_layout(network; links=true, junctions=true, reservoirs=true, tanks=true, pumps=false, prvs=false, legend=false, fig_size=(500, 400), legend_pos=:lt)
+function plot_network_layout(network; links=true, junctions=true, reservoirs=true, tanks=true, pumps=false, prvs=false, legend=false, fig_size=(500, 400), legend_pos=:lt, save_fig=false)
 
     pos_x, pos_y = get_graphing_x_y(network)
 
@@ -152,7 +153,7 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
                 Makie.scatter!(
                     pos_x[reservoir], pos_y[reservoir],
                     marker=:rect,
-                    color=:black,
+                    color=:royalblue4,
                     strokewidth=1,
                     strokecolor=:white,
                     markersize=20,
@@ -162,7 +163,7 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
                 Makie.scatter!(
                     pos_x[reservoir], pos_y[reservoir],
                     marker=:rect,
-                    color=:black,
+                    color=:royalblue4,
                     strokewidth=1,
                     strokecolor=:white,
                     markersize=20
@@ -178,7 +179,7 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
                 Makie.scatter!(
                     pos_x[tank], pos_y[tank],
                     marker=:hexagon,
-                    color=:black,
+                    color=:steelblue1,
                     strokewidth=1,
                     strokecolor=:white,
                     markersize=20,
@@ -188,7 +189,7 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
                 Makie.scatter!(
                     pos_x[tank], pos_y[tank],
                     marker=:hexagon,
-                    color=:black,
+                    color=:steelblue1,
                     strokewidth=1,
                     strokecolor=:white,
                     markersize=20
@@ -210,9 +211,9 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
             if prv == prv_idx[end]
                 Makie.scatter!(
                     half_x, half_y,
-                    markersize=20,
+                    markersize=18,
                     marker=:diamond,
-                    color=:black,
+                    color=:gray,
                     strokewidth=1,
                     strokecolor=:white,
                     label = "PRV"
@@ -220,9 +221,9 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
             else
                 Makie.scatter!(
                     half_x, half_y,
-                    markersize=20,
+                    markersize=18,
                     marker=:diamond,
-                    color=:black,
+                    color=:gray,
                     strokewidth=1,
                     strokecolor=:white
                     );
@@ -240,9 +241,9 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
             if pump == network.pump_idx[end]
                 Makie.scatter!(
                     half_x, half_y,
-                    markersize=20,
+                    markersize=18,
                     marker=:rtriangle,
-                    color=:black,
+                    color=:green,
                     strokewidth=1,
                     strokecolor=:white,
                     label = "Pump"
@@ -250,9 +251,9 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
             else
                 Makie.scatter!(
                     half_x, half_y,
-                    markersize=20,
+                    markersize=18,
                     marker=:rtriangle,
-                    color=:black,
+                    color=:green,
                     strokewidth=1,
                     strokecolor=:white
                     );
@@ -263,6 +264,10 @@ function plot_network_layout(network; links=true, junctions=true, reservoirs=tru
     hidedecorations!(ax); hidespines!(ax); ax.aspect = DataAspect(); 
     if legend
         axislegend(ax, position=legend_pos, groupgap=25, labelsize=16, show=true, framevisible=false, patchlabelgap=10)
+    end
+
+    if save_fig
+        save(pwd() * "/plots/" * network.name * "_layout.pdf", f)
     end
 
     return f
@@ -278,7 +283,7 @@ end
 """
 Function to plot network simulation results
 """
-function plot_network_sim(network, state_df, state_to_plot; links=true, junctions=true, reservoirs=true, tanks=true, pumps=false, prvs=false, legend=false, fig_size=(500, 400), legend_pos=:lt, time_to_plot=1)
+function plot_network_sim(network, state_df, state_to_plot; links=true, junctions=true, reservoirs=true, tanks=true, pumps=false, prvs=false, legend=false, fig_size=(500, 400), legend_pos=:lt, time_to_plot=1, save_fig=false)
 
     pos_x, pos_y = get_graphing_x_y(network)
 
@@ -304,7 +309,7 @@ function plot_network_sim(network, state_df, state_to_plot; links=true, junction
     node_vals = []
     edge_vals = []
     if state_to_plot ∈ ["pressure", "head", "demand", "chlorine", "age", "trace"] # node values
-        edge_size = 0.5
+        edge_size = 1
         node_vals = [state_df[time_to_plot, string(network.node_names[idx])][1] for idx in 1:network.n_n]
         edge_vals = :black
         if state_to_plot ∈ ["chlorine", "age"]
@@ -388,7 +393,7 @@ function plot_network_sim(network, state_df, state_to_plot; links=true, junction
             half_y = (src_y + dst_y) / 2
             Makie.scatter!(ax, 
                 half_x, half_y,
-                markersize=20,
+                markersize=18,
                 marker=:diamond,
                 color=:black,
                 strokewidth=1,
@@ -406,7 +411,7 @@ function plot_network_sim(network, state_df, state_to_plot; links=true, junction
             half_y = (src_y + dst_y) / 2
             Makie.scatter!(ax, 
                 half_x, half_y,
-                markersize=20,
+                markersize=18,
                 marker=:rtriangle,
                 color=:black,
                 strokewidth=1,
@@ -439,6 +444,10 @@ function plot_network_sim(network, state_df, state_to_plot; links=true, junction
         end
         f[2,2] = Colorbar(f, get_edge_plot(p), label=label, ticklabelsize=14, labelsize=16)
     end
+
+    if save_fig
+        save(pwd() * "/plots/" * network.name * "_" * state_to_plot * "_network.pdf", f)
+    end
     
     return f
 end
@@ -450,44 +459,66 @@ end
 """
 Function to plot simulation time series at select elements
 """
-function plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(600, 450))
+function plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(600, 450), save_fig=false)
 
-    elements_to_plot = string.(elements_to_plot)
-    ymin = minimum(describe(state_df[!, elements_to_plot]).min)*0.975
-    ymax = maximum(describe(state_df[!, elements_to_plot]).max)*1.025
+    if length(elements_to_plot) > 1
+        ymin = minimum(describe(state_df[!, string.(elements_to_plot)]).min)
+        ymax = maximum(describe(state_df[!, string.(elements_to_plot)]).max)
+    elseif length(elements_to_plot) == 1
+        ymin = minimum(state_df[!, string.(elements_to_plot)])
+        ymax = maximum(state_df[!, string.(elements_to_plot)])
+    else
+        @info "No elements selected to plot."
+    end
+    xmax = maximum(state_df.timestamp) + 1
+
+    println(xmax)
 
     if state_to_plot == "pressure"
         ylabel = "Pressure [m]"
-        ymin = round(ymin, digits=0)
-        ymax = round(ymax, digits=0)
+        legend = "Nodes"
+        ymin = 10 * floor(ymin / 10)
+        ymax = 10 * ceil(ymax / 10)
     elseif state_to_plot == "head"
         ylabel = "Head [m]"
-        ymin = round(ymin, digits=0)
-        ymax = round(ymax, digits=0)
+        legend = "Nodes"
+        ymin = 10 * floor(ymin / 10)
+        ymax = 10 * ceil(ymax / 10)
     elseif state_to_plot == "demand"
         ylabel = "Demand [L/s]"
-        ymin = round(ymin, digits=0)
-        ymax = round(ymax, digits=0)
+        legend = "Nodes"
+        ymin = 10 * floor(ymin / 10)
+        ymax = 10 * ceil(ymax / 10)
     elseif state_to_plot == "chlorine"
         ylabel = "Chlorine [mg/L]"
-        ymin = round(ymin, digits=1)
-        ymax = round(ymax, digits=1)
+        legend = "Nodes"
+        ymin = 0.5 * floor(ymin / 0.5)
+        ymax = 0.5 * ceil(ymax / 0.5)
     elseif state_to_plot == "age"
         ylabel = "Age [h]"
-        ymin = round(ymin, digits=1)
-        ymax = round(ymax, digits=1)
+        legend = "Nodes"
+        ymin = 20 * floor(ymin / 20)
+        ymax = 20 * ceil(ymax / 20)
     elseif state_to_plot == "trace"
         ylabel = "Trace [%]"
-        ymin = round(ymin, digits=0)
-        ymax = round(ymax, digits=0)
+        legend = "Nodes"
+        ymin = 20 * floor(ymin / 20)
+        ymax = 20 * ceil(ymax / 20)
     elseif state_to_plot == "flow"
         ylabel = "Flow [L/s]"
-        ymin = round(ymin, digits=0)
-        ymax = round(ymax, digits=0)
+        legend = "Links"
+        ymin = 100 * floor(ymin / 100)
+        ymax = 100 * ceil(ymax / 100)
     elseif state_to_plot == "velocity"
         ylabel = "Velocity [m/s]"
-        ymin = round(ymin, digits=1)
-        ymax = round(ymax, digits=1)
+        legend = "Links"
+        if ymax > 1
+            ymin = 0.5 * floor(ymin / 0.5)
+            ymax = 0.5 * ceil(ymax / 0.5)
+        else
+            ymin = 0.2 * floor(ymin / 0.2)
+            ymax = 0.2 * ceil(ymax / 0.2)
+        end
     end
 
     f = Figure(size=fig_size)
@@ -496,15 +527,22 @@ function plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot;
         ylabel = ylabel,
         xlabelsize = 16,
         ylabelsize = 16,
+        xticks = 0:xmax/4:xmax,
+        # yticks= ymin:(ymax-ymin)/4:ymax,
 
     )
     ylims!(low=ymin, high=ymax)
+    xlims!(low=0, high=xmax)
     x = state_df.timestamp
     for element in elements_to_plot
-        lines!(ax, x, state_df[!, element], label=element, linewidth = 2)
+        lines!(ax, x, state_df[!, string(element)], label=string(element), linewidth = 2)
     end
 
-    f[1, 2] = axislegend(ax, labelsize=16, show=true)
+    f[1, 2] = axislegend(legend, labelsize=14, framevisible=false, position=:rt)
+
+    if save_fig
+        save(pwd() * "/plots/" * network.name * "_" * state_to_plot * "_timeseries.pdf", f)
+    end
 
     return f
 

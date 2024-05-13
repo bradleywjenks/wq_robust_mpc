@@ -6,6 +6,7 @@ using LinearAlgebra
 using SparseArrays
 using LinearSolve
 using LinearSolvePardiso
+using Plots
 
 net_name = "Net3" # "Threenode", "Net1", "Net3"
 network = load_network(net_name)
@@ -45,7 +46,6 @@ end
 
 # get flow and velocity values
 q = Matrix(abs.(sim_results.flow[:, 2:end]) ./ 1000)' # convert to m^3/s
-q[q .< 1e-8] .= 1e-8
 vel = Matrix(abs.(sim_results.velocity[:, 2:end]))'
 d = Matrix(abs.(sim_results.demand[:, 2:end]) ./ 1000)' 
 
@@ -60,7 +60,7 @@ lev_tk = h_tk .- repeat(network.elev[network.tank_idx], 1, n_t)'
 V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')'
 
 # set discretization parameters and variables
-Δt = 60 # 60 seconds
+Δt = 5 # 60 seconds
 L_p = network.L[network.pipe_idx]
 vel_p_max = maximum(vel_p, dims=2)
 s_p = floor.(Int, L_p ./ (vel_p_max .* Δt))
@@ -90,7 +90,8 @@ kw = (-0.1/3600/24) # units = 1/second
 
 ### construct coefficient matrices across all hydraulic time steps ###
 n_x = network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + n_s
-k = 1 # iterate through hydraulic time steps later
+kt = 1 # iterate through hydraulic time steps later
+kt_Δt = 1 # iterate through hydraulic time steps later
 
 # Ex(t+Δt) = Ax(t) + Bu(t)
 E = spzeros(n_x, n_x)
@@ -99,33 +100,33 @@ A = spzeros(n_x, n_x)
 
 # construct reservoir coefficient matrices
 for r ∈ 1:network.n_r
-    E[r, r] = 1
-    A[r, r] = 1
+    E[r, r] = 1.0
+    A[r, r] = 1.0
 end
 
 # construct junction coefficient matrices
 for (i, j) ∈ enumerate(network.junction_idx)
 
     # find all incoming and outgoing link indices at junction j
-    I_in = findall(x -> x == 1, A_i[:, j, k]) # set of incoming links at junction j
-    I_out = findall(x -> x == -1, A_i[:, j, k]) # set of outgoing links at junction j
+    I_in = findall(x -> x == 1, A_i[:, j, kt_Δt]) # set of incoming links at junction j
+    I_out = findall(x -> x == -1, A_i[:, j, kt_Δt]) # set of outgoing links at junction j
 
     # assign c_j(t+Δt) matrix coefficients
-    E[network.n_r + i, network.n_r + i] = d[j, k] + sum(q[I_out, k])
+    E[network.n_r + i, network.n_r + i] = 1.0
     # nothing for A matrix
 
     # assign c_link(t+Δt) matrix coefficients
     for link_idx ∈ I_in
         if link_idx ∈ network.pump_idx
             idx = findfirst(x -> x == link_idx, network.pump_idx)
-            E[network.n_r + i, network.n_r + network.n_j + network.n_tk + idx] = -q_m[idx, k]
+            E[network.n_r + i, network.n_r + network.n_j + network.n_tk + idx] = -q_m[idx, kt_Δt] ./ (d[j, kt_Δt] + sum(q[I_out, kt_Δt]))
         elseif link_idx ∈ network.valve_idx
             idx = findfirst(x -> x == link_idx, network.valve_idx)
-            E[network.n_r + i, network.n_r + network.n_j + network.n_tk + network.n_m + idx] = -q_v[idx, k]
+            E[network.n_r + i, network.n_r + network.n_j + network.n_tk + network.n_m + idx] = -q_v[idx, kt_Δt] ./ (d[j, kt_Δt] + sum(q[I_out, kt_Δt]))
         elseif link_idx ∈ network.pipe_idx
             idx = findfirst(x -> x == link_idx, network.pipe_idx)
             Δs = sum(s_p[1:idx])
-            E[network.n_r + i, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs] = -q_p[idx, k]
+            E[network.n_r + i, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs] = -q_p[idx, kt_Δt] ./ (d[j, kt_Δt] + sum(q[I_out, kt_Δt]))
         else 
             @error "Link index not found in network pipe, pump, or valve indices."
         end
@@ -138,27 +139,27 @@ end
 for (i, tk) ∈ enumerate(network.tank_idx)
 
     # find all incoming and outgoing link indices at junction j
-    I_in = findall(x -> x == 1, A_i[:, tk, k]) # set of incoming links at junction j
-    I_out = findall(x -> x == -1, A_i[:, tk, k]) # set of outgoing links at junction j
+    I_in = findall(x -> x == 1, A_i[:, tk, kt]) # set of incoming links at junction j
+    I_out = findall(x -> x == -1, A_i[:, tk, kt]) # set of outgoing links at junction j
 
     # assign c_tk(t+Δt) matrix coefficients
-    E[network.n_r + network.n_j + i, network.n_r + network.n_j + i] = V_tk[i, k]
+    E[network.n_r + network.n_j + i, network.n_r + network.n_j + i] = 1.0
 
     # assign c_tk(t) matrix coefficients
-    A[network.n_r + network.n_j + i, network.n_r + network.n_j + i] = V_tk[i, k] +(kb .* V_tk[i, k] - sum(q[I_out, k])) .* Δt
+    A[network.n_r + network.n_j + i, network.n_r + network.n_j + i] = (V_tk[i, kt] + (kb .* V_tk[i, kt] - sum(q[I_out, kt])) .* Δt) ./ V_tk[i, kt_Δt]
 
     # assign c_link(t) matrix coefficients
     for link_idx ∈ I_in
         if link_idx ∈ network.pump_idx
             idx = findfirst(x -> x == link_idx, network.pump_idx)
-            A[network.n_r + network.n_j + i, network.n_r + network.n_j + network.n_tk + idx] = q_m[idx, k]
+            A[network.n_r + network.n_j + i, network.n_r + network.n_j + network.n_tk + idx] = q_m[idx, kt] ./ V_tk[i, kt_Δt]
         elseif link_idx ∈ network.valve_idx
             idx = findfirst(x -> x == link_idx, network.valve_idx)
-            A[network.n_r + network.n_j + i, network.n_r + network.n_j + network.n_tk + network.n_m + idx] = q_v[idx, k]
+            A[network.n_r + network.n_j + i, network.n_r + network.n_j + network.n_tk + network.n_m + idx] = q_v[idx, kt] ./ V_tk[i, kt_Δt]
         elseif link_idx ∈ network.pipe_idx
             idx = findfirst(x -> x == link_idx, network.pipe_idx)
             Δs = sum(s_p[1:idx])
-            A[network.n_r + network.n_j + i, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs] = q_p[idx, k]
+            A[network.n_r + network.n_j + i, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs] = q_p[idx, kt] ./ V_tk[i, kt_Δt]
         else 
             @error "Link index not found in network pipe, pump, or valve indices."
         end
@@ -171,22 +172,22 @@ end
 for (i, m) ∈ enumerate(network.pump_idx)
 
     # assign c_node(t+Δt) matrix coefficients
-    node_out = findall(x -> x == -1, A_i[m, :, k])[1]
+    node_out = findall(x -> x == -1, A_i[m, :, kt_Δt])[1]
     if node_out ∈ network.reservoir_idx
         idx = findfirst(x -> x == node_out, network.reservoir_idx)
-        E[network.n_r + network.n_j + network.n_tk + i, idx] = -1
+        E[network.n_r + network.n_j + network.n_tk + i, idx] = -1.0
     elseif node_out ∈ network.junction_idx
         idx = findfirst(x -> x == node_out, network.junction_idx)
-        E[network.n_r + network.n_j + network.n_tk + i, network.n_r + idx] = -1
+        E[network.n_r + network.n_j + network.n_tk + i, network.n_r + idx] = -1.0
     elseif node_out ∈ network.tank_idx
         idx = findfirst(x -> x == node_out, network.tank_idx)
-        E[network.n_r + network.n_j + network.n_tk + i, network.n_r + network.n_j + idx] = -1
+        E[network.n_r + network.n_j + network.n_tk + i, network.n_r + network.n_j + idx] = -1.0
     else
         @error "Pump upstream node not found in network reservoir, junction, or tank indices."
     end
 
     # assign c_pump(t+Δt) matrix coefficients
-    E[network.n_r + network.n_j + network.n_tk + i, network.n_r + network.n_j + network.n_tk + i] = 1
+    E[network.n_r + network.n_j + network.n_tk + i, network.n_r + network.n_j + network.n_tk + i] = 1.0
 
 end
 
@@ -195,36 +196,36 @@ end
 for (i, v) ∈ enumerate(network.valve_idx)
 
     # assign c_node(t+Δt) matrix coefficients
-    node_out = findall(x -> x == -1, A_i[v, :, k])[1]
+    node_out = findall(x -> x == -1, A_i[v, :, kt_Δt])[1]
     if node_out ∈ network.reservoir_idx
         idx = findfirst(x -> x == node_out, network.reservoir_idx)
-        E[network.n_r + network.n_j + network.n_tk + network.n_m + i, idx] = -1
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + i, idx] = -1.0
     elseif node_out ∈ network.junction_idx
         idx = findfirst(x -> x == node_out, network.junction_idx)
-        E[network.n_r + network.n_j + network.n_tk + network.n_m + i, network.n_r + idx] = -1
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + i, network.n_r + idx] = -1.0
     elseif node_out ∈ network.tank_idx
         idx = findfirst(x -> x == node_out, network.tank_idx)
-        E[network.n_r + network.n_j + network.n_tk + network.n_m + i, network.n_r + network.n_j + idx] = -1
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + i, network.n_r + network.n_j + idx] = -1.0
     else
         @error "Valve upstream node not found in network reservoir, junction, or tank indices."
     end
 
     # assign c_valve(t+Δt) matrix coefficients
-    E[network.n_r + network.n_j + network.n_tk + network.n_m + i, network.n_r + network.n_j + network.n_tk + network.n_m + i] = 1
+    E[network.n_r + network.n_j + network.n_tk + network.n_m + i, network.n_r + network.n_j + network.n_tk + network.n_m + i] = 1.0
 
 end
 
 
 # construct pipe coefficient matrices (start with Lax-Wendroff discretization scheme)
-λ_p1 = 0.5 .* λ_p[:, k] .* (1 .+ λ_p[:, k])
-λ_p2 = (1 .- λ_p[:, k]).^2
-λ_p3 = -0.5 .* λ_p[:, k] .* (1 .- λ_p[:, k])
+λ_p1 = 0.5 .* λ_p[:, kt] .* (1 .+ λ_p[:, kt])
+λ_p2 = (1 .- λ_p[:, kt]).^2
+λ_p3 = -0.5 .* λ_p[:, kt] .* (1 .- λ_p[:, kt])
 
 for (i, p) ∈ enumerate(network.pipe_idx)
 
     # find upstream and downstream node indices at pipe p
-    node_in = findall(x -> x == 1, A_i[p, :, k])[1]
-    node_out = findall(x -> x == -1, A_i[p, :, k])[1]
+    node_in = findall(x -> x == 1, A_i[p, :, kt])[1]
+    node_out = findall(x -> x == -1, A_i[p, :, kt])[1]
 
     # compute decay constant for pipe p
     # insert code here to compute  mass transfer coefficient...
@@ -235,7 +236,7 @@ for (i, p) ∈ enumerate(network.pipe_idx)
         Δs = sum(s_p[1:i-1])
 
         # assign C_pipe(t+Δt) matrix coefficients
-        E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = 1
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = 1.0
         
         # assign C_pipe(t) and C_juction(t) matrix coefficients
         if s == 1
@@ -318,7 +319,6 @@ end
 # form system of linear equations: Ex(t+Δt) = Ax(t) + Bu(t)
 A_xt = A * x0
 prob = LinearProblem(E, A_xt)
-# E = Matrix(E)
 cpu_time = @elapsed begin
     # xt_Δt = solve(prob, MKLPardisoFactorize()).u
     # linsolve = init(prob)

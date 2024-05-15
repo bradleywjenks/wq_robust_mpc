@@ -45,11 +45,11 @@ Base.copy(r::SimResults) = SimResults(
 """
 Function for getting the number of hydraulic time steps when simulation period is modified.
 """
-function get_hydraulic_time_steps(network, net_name, sim_days)
+function get_hydraulic_time_steps(network, net_name, sim_days, Δk)
     if net_name == "Threenode" || net_name == "Net1"
-        n_t = network.n_t * sim_days
+        n_t = network.n_t * sim_days * 3600 / Δk
     elseif net_name == "Net3"
-        n_t = network.n_t
+        n_t = network.n_t * 3600 / Δk
     else 
         n_t = nothing
         @error "Network name not recognized."

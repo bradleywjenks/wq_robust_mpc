@@ -368,11 +368,11 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
     T_k = Int(T / Δt) # number of discrete time steps
     c_r_t = source_cl
-    c_j_t = ones(n_j)
-    c_tk_t = ones(n_tk)
-    c_m_t = ones(n_m)
-    c_v_t = ones(n_v)
-    c_p_t = ones(n_s)
+    c_j_t = zeros(n_j)
+    c_tk_t = zeros(n_tk)
+    c_m_t = zeros(n_m)
+    c_v_t = zeros(n_v)
+    c_p_t = zeros(n_s)
     x_t = vcat(c_r_t, c_j_t, c_tk_t, c_m_t, c_v_t, c_p_t)
 
     n_x = n_r + n_j + n_tk + n_m + n_v + n_s
@@ -380,10 +380,10 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
 
     # initialize coefficient matrices in system of linear equations
     # Ex(t+Δt) = Ax(t) + Bu(t) + f(x(t))
-    E = spzeros(n_x, n_x)
-    A = spzeros(n_x, n_x)
-    B = spzeros(n_x, n_u)
-    f = spzeros(n_x, n_x)
+    # E = spzeros(n_x, n_x)
+    # A = spzeros(n_x, n_x)
+    # B = spzeros(n_x, n_u)
+    # f = spzeros(n_x, n_x)
 
     # initialize solution matrix
     x = zeros(n_x, T_k+1)
@@ -394,12 +394,17 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
     ##### MAIN WQ_SOLVER LOOP #####
     for t ∈ 1:T_k
 
-        # @info "Solving water quality states at time step t = $t"
+        # initialize coefficient matrices in system of linear equations
+        # Ex(t+Δt) = Ax(t) + Bu(t) + f(x(t))
+        E = spzeros(n_x, n_x)
+        A = spzeros(n_x, n_x)
+        B = spzeros(n_x, n_u)
+        f = spzeros(n_x, n_x)
 
         # find hydraulic time step index
         k_t = searchsortedfirst(k_set, t*Δt) - 1
-        # k_t_Δt = k_t
-        k_t_Δt = searchsortedfirst(k_set, (t+1)*Δt) - 1
+        k_t_Δt = k_t
+        # k_t_Δt = searchsortedfirst(k_set, (t+1)*Δt) - 1
 
         @info "Solving water quality states at time step t = $t with hydraulics at time step k = $k_t"
 
@@ -424,10 +429,10 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
             for link_idx ∈ I_in
                 if link_idx ∈ pump_idx
                     idx = findfirst(x -> x == link_idx, pump_idx)
-                    A[n_r + i, n_r + n_j + n_tk + idx] = (q_m[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                    E[n_r + i, n_r + n_j + n_tk + idx] = -(q_m[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
                 elseif link_idx ∈ valve_idx
                     idx = findfirst(x -> x == link_idx, valve_idx)
-                    A[n_r + i, n_r + n_j + n_tk + n_m + idx] = (q_v[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                    E[n_r + i, n_r + n_j + n_tk + n_m + idx] = -(q_v[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
                 elseif link_idx ∈ pipe_idx
                     qdir_p = qdir[link_idx, k_t]
                     idx = findfirst(x -> x == link_idx, pipe_idx)
@@ -436,7 +441,7 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
                     elseif qdir_p == -1
                         Δs = sum(s_p[1:idx-1]) + 1
                     end
-                    A[n_r + i, n_r + n_j + n_tk + n_m + n_v + Δs] = (q_p[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                    E[n_r + i, n_r + n_j + n_tk + n_m + n_v + Δs] = -(q_p[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
                 else 
                     @error "Link index $link_index not found in network pipe, pump, or valve indices."
                 end
@@ -582,7 +587,7 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
         x_t = x_t_Δt
     end
 
-    return x, λ_p, s_p
+    return x
 
 end
 
@@ -596,7 +601,6 @@ function explicit_central_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in
 
     # get discretization parameters for pipe i at hydraulic time step k
     λ = λ_p[i, k_t] * qdir_p
-    println("λ = $λ")
     # λ = λ_p[i, k_t]
     λ_p1 = 0.5 * λ * (1 + λ)
     λ_p2 = 1 - abs(λ)^2

@@ -4,7 +4,7 @@ using Revise
 using Plots
 
 
-net_name = "Net1" # "Threenode", "Net1", "Net3"
+net_name = "Net3" # "Threenode", "Net1", "Net3"
 network = load_network(net_name)
 
 
@@ -15,12 +15,12 @@ network = load_network(net_name)
 ##### Simulation functions #####
 
 # solver inputs
-sim_days = 1
+sim_days = 7
 Δk = 3600
 Δt = 60
-kb = 0.5
+kb = 0
 kw = 0
-disc_method = "explicit-central" # "explicit-central", "implicit-upwind"
+disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
 source_cl = repeat([1.5], network.n_r)
 
 # EPANET solver
@@ -30,17 +30,7 @@ n_t = size(sim_results.timestamp)[1]
 u = ones(1, n_t)
 
 # Water quality solver
-x, λ, s = wq_solver(network, sim_days, Δt, source_cl, u; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk)
-
-T_k = size(x, 2)
-plot(x[network.n_r+1, 1:end])
-plot(x[network.n_r+network.n_j+1, 1:1200])
-plot(x[network.n_r+network.n_j+network.n_tk+1, 1:end])
-plot(x[network.n_r+network.n_j+network.n_tk+network.n_m+network.n_v+609, 1:1000])
-plot(x[end, 1:500])
-
-plot(x[3, :])
-
+x = wq_solver(network, sim_days, Δt, source_cl, u; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk)
 
 
 

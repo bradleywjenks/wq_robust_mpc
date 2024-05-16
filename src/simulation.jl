@@ -61,7 +61,7 @@ end
 """
 Main function for calling EPANET solver via WNTR Python package
 """
-function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_settings=nothing, source_cl=repeat([1.5], network.n_r), trace_node=network.node_names[network.reservoir_idx[1]], sim_days=7, Δt=60, Δk=3600, kb=0.5, kw=0.1)
+function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_settings=nothing, source_cl=repeat([1.5], network.n_r), trace_node=network.node_names[network.reservoir_idx[1]], sim_days=7, Δt=60, Δk=3600, kb=0.5, kw=0.1, x0=0)
 
     net_path = NETWORK_PATH * network.name * "/" * network.name * ".inp"
 
@@ -87,7 +87,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     if sim_type == "hydraulic"
         sim_results = epanet_hydraulic(network, wntr, wn)
     elseif sim_type ∈ ["chlorine", "age", "trace"]
-        sim_results = epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, kb, kw)
+        sim_results = epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw)
     else
         @error "Simulation type not recognized."
         sim_results = SimResults()
@@ -177,7 +177,7 @@ end
 """
 Water quality simulation code via EPANET solver.
 """
-function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, kb, kw)
+function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw)
 
     # set time column
     time_step = wn.options.time.report_timestep
@@ -198,6 +198,11 @@ function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, kb, kw)
         # set chlorine reaction parameters
         wn.options.reaction.bulk_coeff = (-kb/3600/24) # units = 1/second
         wn.options.reaction.wall_coeff = (-kw/3600/24) # units = 1/second
+
+        # set initial chlorine concentration
+        for (node_name, node) in wn.nodes()
+            node.initial_quality = x0
+        end
 
     elseif sim_type == "age"
 
@@ -258,7 +263,7 @@ end
 """
 Water quality solver code from scratch.
 """
-function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_method="explicit-central", Δk=3600)
+function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_method="explicit-central", Δk=3600, x0=0)
 
     ##### INITIALIZE WQ_SOLVER PARAMETERS #####
 
@@ -368,11 +373,11 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
     T_k = Int(T / Δt) # number of discrete time steps
     c_r_t = source_cl
-    c_j_t = zeros(n_j)
-    c_tk_t = zeros(n_tk)
-    c_m_t = zeros(n_m)
-    c_v_t = zeros(n_v)
-    c_p_t = zeros(n_s)
+    c_j_t = x0 .* ones(n_j)
+    c_tk_t = x0 .* ones(n_tk)
+    c_m_t = x0 .* ones(n_m)
+    c_v_t = x0 .* ones(n_v)
+    c_p_t = x0 .* ones(n_s)
     x_t = vcat(c_r_t, c_j_t, c_tk_t, c_m_t, c_v_t, c_p_t)
 
     n_x = n_r + n_j + n_tk + n_m + n_v + n_s

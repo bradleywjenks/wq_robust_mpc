@@ -15,7 +15,7 @@ network = load_network(net_name)
 ##### Simulation functions #####
 
 # solver inputs
-sim_days = 7
+sim_days = 1
 Δk = 3600 # hydraulic time step (default is Δk = 3600 seconds)
 Δt = 60 # water quality time step (default is Δt = 60 seconds)
 kb = 0 # (1/day)
@@ -35,8 +35,9 @@ x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_
 x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
 
 # Testing plots
-plot(x[network.n_r+2, :])
+plot(x[network.n_r+1, :])
 plot(x[network.n_r+network.n_j+1, :])
+plot(x[network.n_r+network.n_j+network.n_tk+network.n_m+1, :])
 
 
 
@@ -47,18 +48,18 @@ plot(x[network.n_r+network.n_j+1, :])
 # network layout
 plot_network_layout(network; pumps=true, legend=true, legend_pos=:lc, fig_size=(600, 450), save_fig=true)
 
-# simulation results
+# epanet simulation results
 state_to_plot = "chlorine" # "pressure", "head", "demand", "flow", "flowdir", "velocity", "chlorine", "age", "trace"
 state_df = getfield(sim_results, Symbol(state_to_plot))
 
 time_to_plot = 1
 plot_network_sim(network, state_df, state_to_plot; time_to_plot=time_to_plot+1, fig_size=(600, 450), pumps=true, save_fig=true)  # time offset since simulation starts at t = 0
 
-elements_to_plot = network.node_names[6] # e.g., network.node_names[1:4] or network.link_names[1:4]
+elements_to_plot = network.node_names[1] # e.g., network.node_names[1:4] or network.link_names[1:4]
 plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)
 
 # EPANET v. water quality solver
-
+# plot_compare_wq_solvers(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)
 
 
 

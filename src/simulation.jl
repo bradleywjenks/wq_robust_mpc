@@ -72,7 +72,7 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
     if net_name == "Threenode"
         b_loc = network.junction_idx
     elseif net_name == "Net1"
-        b_loc = vcat(network.junction_idx[1], network.junction_idx[6])
+        b_loc = vcat(network.junction_idx[1])
     elseif net_name == "Net3"
         b_loc = vcat(network.junction_idx[1], network.junction_idx[8], network.junction_idx[61])
     else
@@ -132,6 +132,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     if sim_type == "hydraulic"
         sim_results = epanet_hydraulic(network, wntr, wn)
     elseif sim_type ∈ ["chlorine", "age", "trace"]
+        wn.options.time.report_timestep = Δt # reporting time step
         sim_results = epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw, b_loc, b_u)
     else
         @error "Simulation type not recognized."
@@ -477,7 +478,6 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
         # Ex(t+Δt) = Ax(t) + Bu(t) + f(x(t))
         E = spzeros(n_x, n_x)
         A = spzeros(n_x, n_x)
-        B = spzeros(n_x, n_u)
         f = spzeros(n_x, n_x)
 
         # find hydraulic time step index
@@ -508,10 +508,10 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
             for link_idx ∈ I_in
                 if link_idx ∈ pump_idx
                     idx = findfirst(x -> x == link_idx, pump_idx)
-                    E[n_r + i, n_r + n_j + n_tk + idx] = -(q_m[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                    E[n_r + i, n_r + n_j + n_tk + idx] = -(q_m[idx, k_t] + ϵ_reg) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
                 elseif link_idx ∈ valve_idx
                     idx = findfirst(x -> x == link_idx, valve_idx)
-                    E[n_r + i, n_r + n_j + n_tk + n_m + idx] = -(q_v[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                    E[n_r + i, n_r + n_j + n_tk + n_m + idx] = -(q_v[idx, k_t] + ϵ_reg) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
                 elseif link_idx ∈ pipe_idx
                     qdir_p = qdir[link_idx, k_t]
                     idx = findfirst(x -> x == link_idx, pipe_idx)
@@ -520,7 +520,7 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
                     elseif qdir_p == -1
                         Δs = sum(s_p[1:idx-1]) + 1
                     end
-                    E[n_r + i, n_r + n_j + n_tk + n_m + n_v + Δs] = -(q_p[idx, k_t]) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                    E[n_r + i, n_r + n_j + n_tk + n_m + n_v + Δs] = -(q_p[idx, k_t] + ϵ_reg) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
                 else 
                     @error "Link index $link_index not found in network pipe, pump, or valve indices."
                 end
@@ -669,6 +669,7 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
         x_t = x_t_Δt
 
     end
+
 
     return x
 

@@ -65,6 +65,8 @@ Function for getting booster locations placed a priori for the specified network
 """
 function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern="constant")
 
+    # currently set as a flow-paced booster, with b_u defined a priori for each water quality time step
+
     T_k = Int(get_hydraulic_time_steps(network, net_name, sim_days, Δk) * 3600 / Δt)
 
     if net_name == "Threenode"
@@ -103,7 +105,7 @@ end
 """
 Main function for calling EPANET solver via WNTR Python package
 """
-function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_settings=nothing, source_cl=repeat([1.5], network.n_r), trace_node=network.node_names[network.reservoir_idx[1]], sim_days=7, Δt=60, Δk=3600, kb=0.5, kw=0.1, x0=0)
+function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_settings=nothing, source_cl=repeat([1.5], network.n_r), trace_node=network.node_names[network.reservoir_idx[1]], sim_days=7, Δt=60, Δk=3600, kb=0.5, kw=0.1, x0=0, b_loc=nothing, b_u=nothing)
 
     net_path = NETWORK_PATH * network.name * "/" * network.name * ".inp"
 
@@ -116,6 +118,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     wn.options.time.hydraulic_timestep = Δk # hydraulic time step
     wn.options.time.quality_timestep = Δt # water quality time step
     wn.options.time.report_timestep = Δk # reporting time step
+    wn.options.time.pattern_timestep = Δt # pattern time step
 
     # # function for setting PRV settings
     # wn = set_pcv_settings(wntr, wn, network, prv_settings)
@@ -129,7 +132,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     if sim_type == "hydraulic"
         sim_results = epanet_hydraulic(network, wntr, wn)
     elseif sim_type ∈ ["chlorine", "age", "trace"]
-        sim_results = epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw)
+        sim_results = epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw, b_loc, b_u)
     else
         @error "Simulation type not recognized."
         sim_results = SimResults()
@@ -219,7 +222,7 @@ end
 """
 Water quality simulation code via EPANET solver.
 """
-function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw)
+function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, kw, b_loc, b_u)
 
     # set time column
     time_step = wn.options.time.report_timestep
@@ -244,6 +247,14 @@ function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, k
         # set initial chlorine concentration
         for (node_name, node) in wn.nodes()
             node.initial_quality = x0
+        end
+
+        # set booster control settings
+        if b_loc !== nothing
+            for (idx, name) in enumerate(network.node_names[b_loc])
+                wn.add_pattern(string(name) * "_cl_patt", b_u[idx, :])
+                wn.add_source(string(name) * "_cl", string(name), "FLOWPACED", 1.0, string(name) * "_cl_patt")
+            end
         end
 
     elseif sim_type == "age"
@@ -393,7 +404,14 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
 
     # set discretization parameters and variables
     vel_p_max = maximum(vel_p, dims=2)
-    s_p = floor.(Int, L_p ./ (vel_p_max .* Δt))
+    s_p = L_p ./ (vel_p_max .* Δt)
+    # println(count(x -> x < 0.75, s_p))
+    if any(s_p .< 0.75)
+        @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
+        return
+    end
+    s_p = floor.(Int, s_p)
+    s_p[s_p .== 0] .= 1
     n_s = sum(s_p)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
@@ -401,9 +419,11 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
     # λ_p[λ_p .< 0] .= 0 # bound λ to [0, 1]  
 
     # check CFL condition
-    if any(Δt .>= Δx_p ./ vel_p)
-        @error "CFL condition not satisfied. Please input a smaller Δt."
-        return
+    for k ∈ 1:n_t
+        if any(Δt .>= Δx_p ./ vel_p[:, k])
+            @error "CFL condition not satisfied. Please input a smaller Δt."
+            return s_p
+        end
     end
 
     # initialize chlorine state variables
@@ -417,44 +437,41 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
     c_p_t = x0 .* ones(n_s)
     x_t = vcat(c_r_t, c_j_t, c_tk_t, c_m_t, c_v_t, c_p_t)
 
+    n_x = n_r + n_j + n_tk + n_m + n_v + n_s
+
     # initialize booster control variables
     if b_u === nothing && b_loc === nothing
         b_u = zeros(1, T_k)
     elseif b_u === nothing && b_loc !== nothing
         b_u = zeros(length(b_loc), T_k)
     end
-
-    n_x = n_r + n_j + n_tk + n_m + n_v + n_s
     n_u = size(b_u, 1) # control actuator inputs
 
-
-    # initialize booster coefficient matrix
     B = spzeros(n_x, n_u)
     if b_loc !== nothing
         for (i, b) ∈ enumerate(b_loc)
             if b ∈ junction_idx
                 idx = findfirst(x -> x == b, junction_idx)
                 B[n_r + idx, i] = 1
+                x_t[n_r + idx] = b_u[i, 1]
             elseif b ∈ tank_idx
                 idx = findfirst(x -> x == b, tank_idx)
                 B[n_r + n_j + idx, i] = 1
+                x_t[n_r + n_j+ idx] = b_u[i, 1]
             else
                 @error "Booster location $b not found in network junction or tank indices."
             end
         end
     end
 
-    println(B)
-
-
     # initialize solution matrix
-    x = zeros(n_x, T_k+1)
+    x = zeros(n_x, T_k)
     x[:, 1] .= x_t
 
     
 
     ##### MAIN WQ_SOLVER LOOP #####
-    for t ∈ 1:T_k
+    for t ∈ 1:T_k-1
 
         # initialize coefficient matrices in system of linear equations
         # Ex(t+Δt) = Ax(t) + Bu(t) + f(x(t))
@@ -640,7 +657,7 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
 
         # solve system of linear equations
         A_x_t = A * x_t
-        B_u_t = B * b_u[:, t]
+        B_u_t = B * b_u[:, t+1]
         f_x_t = f * x_t
         x_t_Δt = E \ (A_x_t + B_u_t + f_x_t)
         # prob = LinearProblem(E, A_x_t + B_u_t + f_x_t)

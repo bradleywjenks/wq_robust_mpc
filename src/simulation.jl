@@ -58,6 +58,48 @@ function get_hydraulic_time_steps(network, net_name, sim_days, Δk)
 end
 
 
+
+
+"""
+Function for getting booster locations placed a priori for the specified networks.
+"""
+function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern="constant")
+
+    T_k = Int(get_hydraulic_time_steps(network, net_name, sim_days, Δk) * 3600 / Δt)
+
+    if net_name == "Threenode"
+        b_loc = network.junction_idx
+    elseif net_name == "Net1"
+        b_loc = vcat(network.junction_idx[1], network.junction_idx[6])
+    elseif net_name == "Net3"
+        b_loc = vcat(network.junction_idx[1], network.junction_idx[8], network.junction_idx[61])
+    else
+        b_loc = nothing
+        @error "Network name not recognized."
+    end
+
+    if control_pattern == "constant"
+        b_u = repeat([1.5], length(b_loc), T_k)
+    elseif control_pattern == "random"
+        μ = 1.5
+        σ = 0.1
+        b_u = rand(Normal(μ, σ), length(b_loc), T_k)
+    elseif control_pattern == "user-defined"
+        b_u = nothing
+        @info "User-defined booster control pattern not yet implemented."
+    else
+        b_u = nothing
+        @error "Control pattern not recognized."
+    end
+
+    return b_loc, b_u
+    
+end
+
+
+
+
+
 """
 Main function for calling EPANET solver via WNTR Python package
 """
@@ -263,7 +305,7 @@ end
 """
 Water quality solver code from scratch.
 """
-function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_method="explicit-central", Δk=3600, x0=0)
+function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_method="explicit-central", Δk=3600, x0=0, b_loc=nothing, b_u=nothing)
 
     ##### INITIALIZE WQ_SOLVER PARAMETERS #####
 
@@ -352,11 +394,6 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
     # set discretization parameters and variables
     vel_p_max = maximum(vel_p, dims=2)
     s_p = floor.(Int, L_p ./ (vel_p_max .* Δt))
-    # if any(s_p .< 1)
-    #     @error "Water quality time step Δt is too large. Please input a smaller Δt."
-    #     return
-    # end
-    # s_p[s_p .== 0] .= 1
     n_s = sum(s_p)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
@@ -380,15 +417,35 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
     c_p_t = x0 .* ones(n_s)
     x_t = vcat(c_r_t, c_j_t, c_tk_t, c_m_t, c_v_t, c_p_t)
 
-    n_x = n_r + n_j + n_tk + n_m + n_v + n_s
-    n_u = size(u, 1) # control actuator inputs
+    # initialize booster control variables
+    if b_u === nothing && b_loc === nothing
+        b_u = zeros(1, T_k)
+    elseif b_u === nothing && b_loc !== nothing
+        b_u = zeros(length(b_loc), T_k)
+    end
 
-    # initialize coefficient matrices in system of linear equations
-    # Ex(t+Δt) = Ax(t) + Bu(t) + f(x(t))
-    # E = spzeros(n_x, n_x)
-    # A = spzeros(n_x, n_x)
-    # B = spzeros(n_x, n_u)
-    # f = spzeros(n_x, n_x)
+    n_x = n_r + n_j + n_tk + n_m + n_v + n_s
+    n_u = size(b_u, 1) # control actuator inputs
+
+
+    # initialize booster coefficient matrix
+    B = spzeros(n_x, n_u)
+    if b_loc !== nothing
+        for (i, b) ∈ enumerate(b_loc)
+            if b ∈ junction_idx
+                idx = findfirst(x -> x == b, junction_idx)
+                B[n_r + idx, i] = 1
+            elseif b ∈ tank_idx
+                idx = findfirst(x -> x == b, tank_idx)
+                B[n_r + n_j + idx, i] = 1
+            else
+                @error "Booster location $b not found in network junction or tank indices."
+            end
+        end
+    end
+
+    println(B)
+
 
     # initialize solution matrix
     x = zeros(n_x, T_k+1)
@@ -567,8 +624,12 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
                 # assign C_pipe(t+Δt) and C_pipe(t) matrix coefficients
                 if disc_method == "explicit-central"
                     E, A = explicit_central_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+                elseif disc_method == "explicit-upwind"
+                    E, A = explicit_upwind_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
                 elseif disc_method == "implicit-upwind"
                     E, A = implicit_upwind_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+                elseif disc_method == "implicit-central"
+                    E, A = implicit_central_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
                 else
                     @error "Discretization method not recognized."
                 end
@@ -579,17 +640,17 @@ function wq_solver(network, sim_days, Δt, source_cl, u; kb=0.5, kw=0.1, disc_me
 
         # solve system of linear equations
         A_x_t = A * x_t
-        B_u_t = B * u[:, k_t]
+        B_u_t = B * b_u[:, t]
         f_x_t = f * x_t
-        # E += Diagonal(1e-3*ones(n_x))
         x_t_Δt = E \ (A_x_t + B_u_t + f_x_t)
         # prob = LinearProblem(E, A_x_t + B_u_t + f_x_t)
         # x_t_Δt = solve(prob, MKLPardisoFactorize()).u
         # linsolve = init(prob)
         # x_t_Δt = solve(linsolve)
+
         x[:, t+1] .= x_t_Δt
- 
         x_t = x_t_Δt
+
     end
 
     return x
@@ -696,6 +757,180 @@ end
 
 
 
+"""
+Explicit-upwind discretization method for pipe segment s @ time step t and t+Δt
+"""
+function explicit_upwind_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+
+    # get discretization parameters for pipe i at hydraulic time step k
+    ϵ_reg = 0
+    λ = abs(λ_p[i, k_t]) + ϵ_reg
+
+    E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = 1
+    A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = (1 - λ)
+        
+    if qdir_p == 1
+
+        # if first pipe segment
+        if s == 1
+
+            # previous segment s-1 matrix coefficients at time t
+            if node_out ∈ network.reservoir_idx
+                idx = findfirst(x -> x == node_out, network.reservoir_idx)
+                A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, idx] = λ
+            elseif node_out ∈ network.junction_idx
+                idx = findfirst(x -> x == node_out, network.junction_idx)
+                A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + idx] = λ
+            elseif node_out ∈ network.tank_idx
+                idx = findfirst(x -> x == node_out, network.tank_idx)
+                A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + idx] = λ
+            else
+                @error "Upstream node of pipe $i not found in network reservoir, junction, or tank indices."
+            end
+
+        else
+
+            # previous segment s-1 matrix coefficients at time t
+            A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s - 1] = λ
+
+        end
+
+    elseif qdir_p == -1
+
+        # if last pipe segment
+        if s == s_p[i]
+
+            # previous segment s+1 matrix coefficients at time t
+            if node_in ∈ network.reservoir_idx
+                idx = findfirst(x -> x == node_in, network.reservoir_idx)
+                A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, idx] = λ
+            elseif node_in ∈ network.junction_idx
+                idx = findfirst(x -> x == node_in, network.junction_idx)
+                A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + idx] = λ
+            elseif node_in ∈ network.tank_idx
+                idx = findfirst(x -> x == node_in, network.tank_idx)
+                A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + idx] = λ
+            else
+                @error "Downstream node of pipe $i not found in network reservoir, junction, or tank indices."
+            end
+
+        else
+
+            # previous segment s+1 matrix coefficients at time t + Δt
+            A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s + 1] = λ
+
+        end
+
+    end
+
+
+    return E, A
+
+end
+
+
+
+
+
+"""
+Implicit-central discretization method for pipe segment s @ time step t and t+Δt
+"""
+function implicit_central_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+
+    # get discretization parameters for pipe i at hydraulic time step k
+    λ = λ_p[i, k_t] * qdir_p
+    # λ = λ_p[i, k_t]
+    λ_p1 = 0.5 * λ * (1 + λ)
+    λ_p2 = 1 - abs(λ)^2
+    λ_p3 = -0.5 * λ * (1 - λ)
+
+    E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = 1
+        
+    # assign C_pipe(t) and C_juction(t) matrix coefficients
+    if s == 1
+
+        # previous segment s-1 matrix coefficients at time t + Δt
+        if node_out ∈ network.reservoir_idx
+            idx = findfirst(x -> x == node_out, network.reservoir_idx)
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, idx] = λ_p1
+        elseif node_out ∈ network.junction_idx
+            idx = findfirst(x -> x == node_out, network.junction_idx)
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + idx] = λ_p1
+        elseif node_out ∈ network.tank_idx
+            idx = findfirst(x -> x == node_out, network.tank_idx)
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + idx] = λ_p1
+        else
+            @error "Upstream node of pipe $i not found in network reservoir, junction, or tank indices."
+        end
+
+        # current segment s matrix coefficients at time t
+        A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = λ_p2
+
+        # next segment s+1 matrix coefficients at time t + Δt
+        if s_p[i] == 1
+            if node_in ∈ network.reservoir_idx
+                idx = findfirst(x -> x == node_in, network.reservoir_idx)
+                E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, idx] = λ_p3
+            elseif node_in ∈ network.junction_idx
+                idx = findfirst(x -> x == node_in, network.junction_idx)
+                E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + idx] = λ_p3
+            elseif node_in ∈ network.tank_idx
+                idx = findfirst(x -> x == node_in, network.tank_idx)
+                E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + idx] = λ_p3
+            else
+                @error "Downstream node of pipe $i not found in network reservoir, junction, or tank indices."
+            end
+        else
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s + 1] = λ_p3
+        end
+
+
+    elseif s == s_p[i] && s > 1
+
+        # previous segment s-1 matrix coefficients at time t + Δt
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s - 1] = λ_p1
+
+        # current segment s matrix coefficients at time t
+        A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = λ_p2
+
+        # next segment s+1 matrix coefficients at time t + Δt
+        if node_in ∈ network.reservoir_idx
+            idx = findfirst(x -> x == node_in, network.reservoir_idx)
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, idx] = λ_p3
+        elseif node_in ∈ network.junction_idx
+            idx = findfirst(x -> x == node_in, network.junction_idx)
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + idx] = λ_p3
+        elseif node_in ∈ network.tank_idx
+            idx = findfirst(x -> x == node_in, network.tank_idx)
+            E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + idx] = λ_p3
+        else
+            @error "Downstream node of pipe $i not found in network reservoir, junction, or tank indices."
+        end
+
+
+    else
+
+        # previous segment s-1 matrix coefficients at time t + Δt
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s - 1] = λ_p1
+
+        # current segment s matrix coefficients at time t
+        A[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = λ_p2
+
+        # next segment s+1 matrix coefficients at time t + Δt
+        E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s + 1] = λ_p3
+        
+    end
+
+
+    return E, A
+
+end
+
+
+
+
+
+
 
 """
 Implicit-upwind discretization method for pipe segment s @ time step t and t+Δt
@@ -750,7 +985,6 @@ function implicit_upwind_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in,
             elseif node_in ∈ network.tank_idx
                 idx = findfirst(x -> x == node_in, network.tank_idx)
                 E[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + idx] = -λ
-                println(λ)
             else
                 @error "Downstream node of pipe $i not found in network reservoir, junction, or tank indices."
             end

@@ -4,7 +4,7 @@ using Revise
 using Plots
 
 
-net_name = "Net1" # "Threenode", "Net1", "Net3"
+net_name = "Threenode" # "Threenode", "Net1", "Net3"
 network = load_network(net_name)
 
 
@@ -15,26 +15,26 @@ network = load_network(net_name)
 ##### Simulation functions #####
 
 # solver inputs
-sim_days = 7
+sim_days = 1
 Δk = 3600 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 60 # water quality time step (default is Δt = 60 seconds)
-n_t = Int(get_hydraulic_time_steps(network, net_name, sim_days, Δk))
+Δt = 5 # water quality time step (default is Δt = 60 seconds)
 kb = 0 # (1/day)
 kw = 0 # (m/day)
-disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind", "explicit-upwind"
-source_cl = repeat([1.5], network.n_r)
-b_loc = get_booster_locations(network, net_name)
-b_u = ones(1, n_t) # booster control settings
-x0 = 2 # initial conditions
+disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind", "explicit-upwind", "implicit-central"
+source_cl = repeat([0.5], network.n_r)
+control_pattern = "constant" # "constant", "random", "user-defined"
+b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings
+x0 = 0.5 # initial conditions
 
 # EPANET solver
 sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"
 sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=source_cl, Δt=Δt, Δk=Δk, x0=x0, kb=kb, kw=kw)
 
 # Water quality solver
-x = wq_solver(network, sim_days, Δt, source_cl, u; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0)
+x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0) # without booster control
+x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
 
-plot(x[4, :])
+plot(x[3, :])
 
 
 

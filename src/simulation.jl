@@ -317,9 +317,9 @@ end
 """
 Water quality solver code from scratch.
 """
-function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_method="explicit-central", Δk=3600, x0=0, b_loc=nothing, b_u=nothing)
+function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, kw=0.1, x0=0, b_loc=nothing, b_u=nothing)
 
-    ##### INITIALIZE WQ_SOLVER PARAMETERS #####
+    ##### SET SOLVER PARAMETERS #####
 
     # assign constant parameters
     kb = (kb/3600/24) # units = 1/second
@@ -374,14 +374,14 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
         end
     end
     q = abs.(q)
-    vel = Matrix(abs.(sim_results.velocity[:, 2:end]))'
+    vel = Matrix(sim_results.velocity[:, 2:end])'
     d = Matrix(abs.(sim_results.demand[:, 2:end]))' 
 
     q_p = q[pipe_idx, :]
     q_m = q[pump_idx, :]
     q_v = q[valve_idx, :]
     vel_p = vel[pipe_idx, :]
-    Re = (4 .* q_p) ./ (π .* D_p .* ν)
+    Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
 
     # update link flow direction
     A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)

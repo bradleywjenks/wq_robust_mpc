@@ -31,8 +31,8 @@ sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"
 sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=source_cl, Δt=Δt, Δk=Δk, x0=x0, kb=kb, kw=kw, b_loc=b_loc, b_u=b_u)
 
 # Water quality solver
-x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0) # without booster control
-x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
+x = wq_solver(network, sim_days, Δt, source_cl, disc_method; kb=kb, kw=kw, x0=x0) # without booster control
+x = wq_solver(network, sim_days, Δt, source_cl, disc_method; kb=kb, kw=kw, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
 
 
 

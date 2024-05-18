@@ -482,8 +482,8 @@ function wq_solver(network, sim_days, Δt, source_cl; kb=0.5, kw=0.1, disc_metho
 
         # find hydraulic time step index
         k_t = searchsortedfirst(k_set, t*Δt) - 1
-        k_t_Δt = k_t
-        # k_t_Δt = searchsortedfirst(k_set, (t+1)*Δt) - 1
+        # k_t_Δt = k_t
+        k_t_Δt = searchsortedfirst(k_set, (t+1)*Δt) - 1
 
         @info "Solving water quality states at time step t = $t with hydraulics at time step k = $k_t"
 

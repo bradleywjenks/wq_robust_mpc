@@ -16,8 +16,8 @@ network = load_network(net_name)
 
 # solver inputs
 sim_days = 1
-Δk = 3600 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 60 # water quality time step (default is Δt = 60 seconds)
+Δk = 60 * 5 # hydraulic time step (default is Δk = 3600 seconds)
+Δt = 5 # water quality time step (default is Δt = 60 seconds)
 kb = 0 # (1/day)
 kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind", "explicit-upwind", "implicit-central"
@@ -34,11 +34,6 @@ sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=sour
 x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0) # without booster control
 x = wq_solver(network, sim_days, Δt, source_cl; kb=kb, kw=kw, disc_method=disc_method, Δk=Δk, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
 
-# Testing plots
-plot(x[network.n_r+1, :])
-plot(x[network.n_r+network.n_j+1, :])
-plot(x[network.n_r+network.n_j+network.n_tk+network.n_m+1, :])
-
 
 
 
@@ -48,18 +43,20 @@ plot(x[network.n_r+network.n_j+network.n_tk+network.n_m+1, :])
 # network layout
 plot_network_layout(network; pumps=true, legend=true, legend_pos=:lc, fig_size=(600, 450), save_fig=true)
 
-# epanet simulation results
+
+# EPANET simulation results
 state_to_plot = "chlorine" # "pressure", "head", "demand", "flow", "flowdir", "velocity", "chlorine", "age", "trace"
 state_df = getfield(sim_results, Symbol(state_to_plot))
 
+# EPANET plotting only
 time_to_plot = 1
 plot_network_sim(network, state_df, state_to_plot; time_to_plot=time_to_plot+1, fig_size=(600, 450), pumps=true, save_fig=true)  # time offset since simulation starts at t = 0
-
-elements_to_plot = network.node_names[1] # e.g., network.node_names[1:4] or network.link_names[1:4]
+elements_to_plot = network.node_names[end] # e.g., network.node_names[1:4] or network.link_names[1:4]
 plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)
 
 # EPANET v. water quality solver
-# plot_compare_wq_solvers(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)
+node_to_plot = network.node_names[end]
+plot_wq_solver_comparison(network, state_df, x, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
 
 
 

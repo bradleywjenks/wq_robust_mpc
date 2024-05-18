@@ -470,9 +470,8 @@ function plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot;
     else
         @info "No elements selected to plot."
     end
-    xmax = maximum(state_df.timestamp) + 1
+    xmax = round(maximum(state_df.timestamp), digits=0)
 
-    println(xmax)
 
     if state_to_plot == "pressure"
         ylabel = "Pressure [m]"
@@ -535,13 +534,96 @@ function plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot;
     xlims!(low=0, high=xmax)
     x = state_df.timestamp
     for element in elements_to_plot
-        lines!(ax, x, state_df[!, string(element)], label=string(element), linewidth = 2)
+        lines!(ax, x, state_df[!, string(element)], label=string(element), linewidth = 1.5)
     end
 
     f[1, 2] = axislegend(legend, labelsize=14, framevisible=false, position=:rt)
 
     if save_fig
         save(pwd() * "/plots/" * network.name * "_" * state_to_plot * "_timeseries.pdf", f)
+    end
+
+    return f
+
+
+end
+
+
+
+
+
+
+"""
+Function to plot comparison between EPANET and water quality solver results
+"""
+function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
+
+    # organize wq_solver results
+    c_r = c[1:network.n_r, :]
+    c_j = c[network.n_r+1:network.n_r+network.n_j, :]
+    c_tk = c[network.n_r+network.n_j+1:network.n_r+network.n_j+network.n_tk, :]
+
+    if disc_method == "explicit-central"
+        disc_method = "Explicit Central"
+    elseif disc_method == "implicit-upwind"
+        disc_method = "Implicit Upwind"
+    elseif disc_method == "explicit-upwind"
+        disc_method = "Explicit Upwind"
+    elseif disc_method == "implicit-central"
+        disc_method = "Implicit Central"
+    end
+
+    ylabel = "Chlorine [mg/L]"
+    ymin = minimum(state_df[!, string.(node_to_plot)])
+    ymin = 0.5 * floor(ymin / 0.5)
+    ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
+    ymax = 0.5 * ceil(ymax / 0.5)
+    xmax = round(maximum(state_df.timestamp), digits=0)
+
+
+    f = Figure(size=fig_size)
+    ax = Axis(f[1, 1],
+        title = "Node " * string(node_to_plot),
+        # titlefont = "normal",
+        xlabel = "Time [h]",
+        ylabel = ylabel,
+        titlesize = 16,
+        xlabelsize = 16,
+        ylabelsize = 16,
+        xticks = 0:xmax/4:xmax,
+        # yticks= ymin:(ymax-ymin)/4:ymax,
+    )
+    ylims!(low=ymin, high=ymax)
+    xlims!(low=0, high=xmax)
+    x = state_df.timestamp
+
+    # EPANET solver results
+    epanet = lines!(ax, x, state_df[!, string(node_to_plot)], label="EPANET", linewidth=1.5)
+
+    # wq_solver results
+    node_idx = network.node_name_to_idx[node_to_plot]
+    if node_idx in network.reservoir_idx
+        plot_idx = findfirst(x -> x == node_idx, network.reservoir_idx)
+        y = c_r[plot_idx, :]
+    elseif node_idx in network.junction_idx
+        plot_idx = findfirst(x -> x == node_idx, network.junction_idx)
+        y = c_j[plot_idx, :]
+    else
+        plot_idx = findfirst(x -> x == node_idx, network.tank_idx)
+        y = c_tk[plot_idx, :]
+    end
+    wq_solver = lines!(ax, x, y, label=disc_method, linewidth=1.5)
+
+    dummy = lines!(x, y, color=:white, linewidth=0.0)
+
+
+    # add legend
+    f[1, 2] = axislegend(ax, [epanet, wq_solver], ["EPANET", disc_method], "Δt="*string(Δt)*" s, Δk="*string(Δk)*" s", position = :rt, labelsize=14, framevisible=false, titlefont="normal")
+    # axislegend(ax, [epanet, wq_solver, dummy], ["EPANET", disc_method, "(Δt="*string(Δt)*", Δk="*string(Δk)*" s)"], position = :rt, labelsize=14, framevisible=false)
+    # f[1, 2] = axislegend(legend_title, labelsize=14, framevisible=false, position=:rt, fontstyle="normal")
+
+    if save_fig
+        save(pwd() * "/plots/" * network.name * "_node_" * string(node_to_plot) * "_solver_comparison_Δt_" * string(Δt) * "_Δk_" * string(Δk) * ".pdf", f)
     end
 
     return f

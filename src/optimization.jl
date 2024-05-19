@@ -83,6 +83,18 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     q_v = q[valve_idx, :]
     vel_p = vel[pipe_idx, :]
     Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
+    Sh = zeros(n_p, n_t)
+    kf = zeros(n_p, n_t)
+    for i ∈ 1:n_p
+        for k ∈ 1:n_t
+            if Re[i, k] < 2000
+                Sh[i, k] = 3.65 + (0.0668 * (D_p[i]/L_p[i]) * Re[i, k] * Sc) /  (1 + 0.04 * ((D_p[i]/L_p[i]) * Re[i, k] * Sc)^(2/3))
+            else
+                Sh[i, k] = 0.0149 * Re[i, k]^0.88 * Sc^(1/3)
+            end
+        end
+        kf[i, :] .= Sh[i, :] .* (D_m / D_p[i])
+    end
 
     # update link flow direction
     A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)
@@ -116,6 +128,11 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     n_s = sum(s_p)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
+    λ_p = λ_p .* qdir[pipe_idx, :]
+    λ_s = []
+    for i in 1:n_p
+        λ_s = vcat(λ_s, repeat(λ_p[i, :]', s_p[i], 1))
+    end
 
     # check CFL condition
     for k ∈ 1:n_t
@@ -253,7 +270,56 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     )
 
     # pipe segment transport
+    s_p_end = cumsum(s_p, dims=1)
+    s_p_start = s_p_end .- s_p .+ 1
+    if disc_method == "explicit-central"
+        # @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1],
+        #     c_p[i, t] .== (
+        #         i ∈ s_p_start ?
+        #         0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_j[findfirst(x -> x == -1, A_inc_0[pipe_idx[findfirst(x -> x == i, s_p_start)], :, k_t[t-1]]), t-1] + (1 - abs(λ_s[i, k_t[t-1]])^2) * c_p[i, t-1] - 0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i+1, t-1] :
+        #         (i ∈ s_p_end ?
+        #         0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i-1, t-1] + (1 - abs(λ_s[i, k_t[t-1]])^2) * c_p[i, t-1] - 0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_j[findfirst(x -> x == 1, A_inc_0[pipe_idx[findfirst(x -> x == i, s_p_end)], :, k_t[t-1]]), t-1] :
+        #         0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i-1, t-1] + (1 - abs(λ_s[i, k_t[t-1]])^2) * c_p[i, t-1] - 0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i+1, t-1]
+        #         )
+        #     )
+        # )
+        @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1], 
+            c_p[i, t] .== begin
+                λ = λ_s[i, k_t[t-1]]
+                
+                c_start = i ∈ s_p_start ? begin
+                    idx = findfirst(x -> x == i, s_p_start)
+                    start_node = A_inc_0[pipe_idx[idx], :, k_t[t-1]]
+                    node_idx = findfirst(x -> x == -1, start_node)
+                    node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t-1] :
+                    node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t-1] :
+                    c_tk[findfirst(x -> x == node_idx, tank_idx), t-1]
+                end : nothing
 
+                c_end = i ∈ s_p_end ? begin
+                    idx = findfirst(x -> x == i, s_p_end)
+                    end_node = A_inc_0[pipe_idx[idx], :, k_t[t-1]]
+                    node_idx = findfirst(x -> x == 1, end_node)
+                    node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t-1] :
+                    node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t-1] :
+                    c_tk[findfirst(x -> x == node_idx, tank_idx), t-1]
+                end : nothing
+
+                i ∈ s_p_start ?
+                    0.5 * λ * (1 + λ) * c_start + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 + λ) * c_p[i+1, t-1] :
+                i ∈ s_p_end ?
+                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 + λ) * c_end :
+                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 + λ) * c_p[i+1, t-1]
+            end
+        )
+    
+    else
+        @error "Only explicit-central discretization method has been implemented so far."
+        return
+    end
+
+    ### define objective function
+    # @objective(model, Min, ...)
 
 
 

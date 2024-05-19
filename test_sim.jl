@@ -16,8 +16,8 @@ network = load_network(net_name)
 
 # solver inputs
 sim_days = 1
-Δk = 60 * 5 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 5 # water quality time step (default is Δt = 60 seconds)
+Δk = 60 * 15 # hydraulic time step (default is Δk = 3600 seconds)
+Δt = 60 # water quality time step (default is Δt = 60 seconds)
 kb = 0 # (1/day)
 kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind", "explicit-upwind", "implicit-central"
@@ -31,8 +31,8 @@ sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"
 sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=source_cl, Δt=Δt, Δk=Δk, x0=x0, kb=kb, kw=kw, b_loc=b_loc, b_u=b_u)
 
 # Water quality solver
-x = wq_solver(network, sim_days, Δt, source_cl, disc_method; kb=kb, kw=kw, x0=x0) # without booster control
-x = wq_solver(network, sim_days, Δt, source_cl, disc_method; kb=kb, kw=kw, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
+x = wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=kb, kw=kw, x0=x0) # without booster control
+x = wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=kb, kw=kw, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
 
 
 

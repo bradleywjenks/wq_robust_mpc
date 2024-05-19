@@ -575,13 +575,13 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
             node_out = findall(x -> x == -1, A_inc[m, :, k_t])[1]
             if node_out ∈ reservoir_idx
                 idx = findfirst(x -> x == node_out, reservoir_idx)
-                A[n_r + n_j + n_tk + i, idx] = 1
+                E[n_r + n_j + n_tk + i, idx] = -1
             elseif node_out ∈ junction_idx
                 idx = findfirst(x -> x == node_out, junction_idx)
-                A[n_r + n_j + n_tk + i, n_r + idx] = 1
+                E[n_r + n_j + n_tk + i, n_r + idx] = -1
             elseif node_out ∈ tank_idx
                 idx = findfirst(x -> x == node_out, tank_idx)
-                A[n_r + n_j + n_tk + i, n_r + n_j + idx] = 1
+                E[n_r + n_j + n_tk + i, n_r + n_j + idx] = -1
             else
                 @error "Pump upstream node $node_out not found in network reservoir, junction, or tank indices."
             end
@@ -598,13 +598,13 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
             node_out = findall(x -> x == -1, A_inc[v, :, k_t])[1]
             if node_out ∈ reservoir_idx
                 idx = findfirst(x -> x == node_out, reservoir_idx)
-                A[n_r + n_j + n_tk + n_m + i, idx] = 1
+                E[n_r + n_j + n_tk + n_m + i, idx] = -1
             elseif node_out ∈ junction_idx
                 idx = findfirst(x -> x == node_out, junction_idx)
-                A[n_r + n_j + n_tk + n_m + i, n_r + idx] = 1
+                E[n_r + n_j + n_tk + n_m + i, n_r + idx] = -1
             elseif node_out ∈ tank_idx
                 idx = findfirst(x -> x == node_out, tank_idx)
-                A[n_r + n_j + n_tk + n_m + i, n_r + n_j + idx] = 1
+                E[n_r + n_j + n_tk + n_m + i, n_r + n_j + idx] = -1
             else
                 @error "Valve upstream node $node_out not found in network reservoir, junction, or tank indices."
             end

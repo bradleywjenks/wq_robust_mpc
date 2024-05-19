@@ -84,15 +84,6 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     vel_p = vel[pipe_idx, :]
     Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
 
-    # # reshape hydraulic variables to match wq time steps
-    # q_repeat = []
-    # v_repeat = []
-    # for k ∈ 1:n_t
-    #     q_repeat_k = repeat(q[:, k], 1, Int(Δk/Δt))
-    #     append!(q_repeat, q_repeat_k)
-    #     v_repeat_k = repeat(vel[:, k], 1, Int(Δk/Δt))
-    # end
-
     # update link flow direction
     A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)
     A_inc = copy(A_inc_0)
@@ -138,10 +129,10 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
     T_k = Int(T / Δt) # number of discrete time steps
     k_t = zeros(1, T_k+1)
-    for t ∈ 1:T_k
+    for t ∈ 2:T_k+1
         k_t[t] = searchsortedfirst(k_set, t*Δt) - 1
     end
-    k_t[T_k+1] = k_t[T_k]
+    k_t[1] = k_t[2]
     k_t = Int.(k_t)
 
 
@@ -165,7 +156,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     @variable(model, x_bounds[1] ≤ c_m[i=1:n_m, t=1:T_k+1] ≤ x_bounds[2])
     @variable(model, x_bounds[1] ≤ c_v[i=1:n_v, t=1:T_k+1] ≤ x_bounds[2])
     @variable(model, x_bounds[1] ≤ c_p[i=1:n_s, t=1:T_k+1] ≤ x_bounds[2])
-    @variable(model, u_bounds[1] ≤ u[i=1:n_j, t=1:T_k] ≤ u_bounds[2])
+    @variable(model, u_bounds[1] ≤ u[i=1:n_j, t=1:n_t] ≤ u_bounds[2])
 
     ### define constraints
 
@@ -204,7 +195,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                 d[i, k_t[t-1]] + sum(q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])) + ϵ_reg
             )
         ) + (
-            u[i, t-1]
+            u[i, k_t[t-1]]
         )
     )
 
@@ -238,8 +229,28 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     )
 
     # pump mass balance
+    @constraint(model, pump_balance[i=1:n_m, t=2:T_k+1],
+        c_m[i, t] .== (
+            findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ? 
+            c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
+            (findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
+            c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
+            c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
+            )
+        )
+    )
 
     # valve mass balance
+    @constraint(model, valve_balance[i=1:n_v, t=2:T_k+1],
+        c_v[i, t] .== (
+            findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ? 
+            c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
+            (findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
+            c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
+            c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
+            )
+        )
+    )
 
     # pipe segment transport
 

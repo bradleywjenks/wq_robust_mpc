@@ -84,6 +84,15 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     vel_p = vel[pipe_idx, :]
     Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
 
+    # # reshape hydraulic variables to match wq time steps
+    # q_repeat = []
+    # v_repeat = []
+    # for k ∈ 1:n_t
+    #     q_repeat_k = repeat(q[:, k], 1, Int(Δk/Δt))
+    #     append!(q_repeat, q_repeat_k)
+    #     v_repeat_k = repeat(vel[:, k], 1, Int(Δk/Δt))
+    # end
+
     # update link flow direction
     A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)
     A_inc = copy(A_inc_0)
@@ -128,24 +137,113 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     # simulation times
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
     T_k = Int(T / Δt) # number of discrete time steps
+    k_t = zeros(1, T_k+1)
+    for t ∈ 1:T_k
+        k_t[t] = searchsortedfirst(k_set, t*Δt) - 1
+    end
+    k_t[T_k+1] = k_t[T_k]
+    k_t = Int.(k_t)
+
 
 
     
-    ##### CREATE OPTIMIZATION MODEL #####
+    ##### BUILD OPTIMIZATION MODEL #####
 
     model = Model(Gurobi.Optimizer)
+    #set_optimizer_attribute(model,"Method", 2)
+    # set_optimizer_attribute(model,"Presolve", 0)
+    # set_optimizer_attribute(model,"Crossover", 0)
+    #set_optimizer_attribute(model,"NumericFocus", 3)
+    # set_optimizer_attribute(model,"NonConvex", 2)
     # set_silent(model)
 
-    # define variables
-    @variable(model, x_bounds[1] ≤ c_r[i=1:n_r, t=1:T_k] ≤ x_bounds[2])
-    @variable(model, x_bounds[1] ≤ c_j[i=1:n_j, t=1:T_k] ≤ x_bounds[2])
-    @variable(model, x_bounds[1] ≤ c_tk[i=1:n_tk, t=1:T_k] ≤ x_bounds[2])
-    @variable(model, x_bounds[1] ≤ c_m[i=1:n_m, t=1:T_k] ≤ x_bounds[2])
-    @variable(model, x_bounds[1] ≤ c_v[i=1:n_v, t=1:T_k] ≤ x_bounds[2])
-    @variable(model, x_bounds[1] ≤ c_p[i=1:n_s, t=1:T_k] ≤ x_bounds[2])
+    ### define variables
+    # @variable(model, x_bounds[1] ≤ c_r[i=1:n_r] ≤ x_bounds[2])
+    @variable(model, x_bounds[1] ≤ c_r[i=1:n_r, t=1:T_k+1] ≤ x_bounds[2])
+    @variable(model, x_bounds[1] ≤ c_j[i=1:n_j, t=1:T_k+1] ≤ x_bounds[2])
+    @variable(model, x_bounds[1] ≤ c_tk[i=1:n_tk, t=1:T_k+1] ≤ x_bounds[2])
+    @variable(model, x_bounds[1] ≤ c_m[i=1:n_m, t=1:T_k+1] ≤ x_bounds[2])
+    @variable(model, x_bounds[1] ≤ c_v[i=1:n_v, t=1:T_k+1] ≤ x_bounds[2])
+    @variable(model, x_bounds[1] ≤ c_p[i=1:n_s, t=1:T_k+1] ≤ x_bounds[2])
+    @variable(model, u_bounds[1] ≤ u[i=1:n_j, t=1:T_k] ≤ u_bounds[2])
 
-    # define constraints
-    # insert constraints here... 
+    ### define constraints
+
+    # initial and boundary (reservoir) conditions
+    @constraint(model, c_r .== repeat(source_cl, 1, T_k+1))
+    @constraint(model, c_j[:, 1] .== x0)
+    @constraint(model, c_tk[:, 1] .== x0)
+    @constraint(model, c_m[:, 1] .== x0)
+    @constraint(model, c_v[:, 1] .== x0)
+    @constraint(model, c_p[:, 1] .== x0)
+
+    # booster locations
+    b_idx = findall(x -> x ∈ b_loc, junction_idx)
+    not_b_idx = setdiff(1:length(junction_idx), b_idx)
+    @constraint(model, u[not_b_idx, :] .== 0)
+
+    # junction mass balance
+    ϵ_reg = 1e-3
+    @constraint(model, junction_balance[i=1:n_j, t=2:T_k+1],
+        c_j[i, t] .== (
+            sum(
+                (q[j, k_t[t-1]] + ϵ_reg) * (
+                    j in pipe_idx ? 
+                        c_p[
+                            qdir[j, k_t[t-1]] == 1 ? 
+                            sum(s_p[1:findfirst(x -> x == j, pipe_idx)]) :
+                            sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1,
+                            t
+                        ] :
+                    (j in pump_idx ? 
+                        c_m[findfirst(x -> x == j, pump_idx), t] :
+                        c_v[findfirst(x -> x == j, valve_idx), t]
+                    )
+                ) for j in findall(x -> x == 1, A_inc[:, i, k_t[t-1]])
+            ) / (
+                d[i, k_t[t-1]] + sum(q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])) + ϵ_reg
+            )
+        ) + (
+            u[i, t-1]
+        )
+    )
+
+    # tank mass balance
+    @constraint(model, tank_balance[i=1:n_tk, t=2:T_k+1],
+        c_tk[i, t] .== (
+            c_tk[i, t-1] * V_tk[i, k_t[t-1]] - (
+                c_tk[i, t-1] * Δt * sum(
+                    q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])
+                )
+            ) + (
+                sum(
+                    q[j, k_t[t-1]] * Δt * (
+                        j in pipe_idx ? 
+                            c_p[
+                                qdir[j, k_t[t-1]] == 1 ? 
+                                sum(s_p[1:findfirst(x -> x == j, pipe_idx)]) :
+                                sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1,
+                                t-1
+                            ] :
+                        (j in pump_idx ? 
+                            c_m[findfirst(x -> x == j, pump_idx), t-1] :
+                            c_v[findfirst(x -> x == j, valve_idx), t-1]
+                        )
+                    ) for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])
+                )
+            ) - (
+                kb * V_tk[i, k_t[t-1]] * Δt * -1
+            )
+        ) / V_tk[i, k_t[t]]
+    )
+
+    # pump mass balance
+
+    # valve mass balance
+
+    # pipe segment transport
+
+
 
 
     x = nothing

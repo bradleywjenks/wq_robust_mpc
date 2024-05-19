@@ -193,7 +193,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     # junction mass balance
     ϵ_reg = 1e-3
     @constraint(model, junction_balance[i=1:n_j, t=2:T_k+1],
-        c_j[i, t] .== (
+        c_j[i, t] == (
             sum(
                 (q[j, k_t[t-1]] + ϵ_reg) * (
                     j in pipe_idx ? 
@@ -203,27 +203,26 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                             sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1,
                             t
                         ] :
-                    (j in pump_idx ? 
+                    j in pump_idx ? 
                         c_m[findfirst(x -> x == j, pump_idx), t] :
                         c_v[findfirst(x -> x == j, valve_idx), t]
-                    )
                 ) for j in findall(x -> x == 1, A_inc[:, i, k_t[t-1]])
             ) / (
                 d[i, k_t[t-1]] + sum(q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])) + ϵ_reg
             )
-        ) + (
-            u[i, k_t[t-1]]
-        )
+        ) + u[i, k_t[t-1]]
     )
 
     # tank mass balance
     @constraint(model, tank_balance[i=1:n_tk, t=2:T_k+1],
-        c_tk[i, t] .== (
-            c_tk[i, t-1] * V_tk[i, k_t[t-1]] - (
+        c_tk[i, t] == (
+            c_tk[i, t-1] * V_tk[i, k_t[t-1]] -
+            (
                 c_tk[i, t-1] * Δt * sum(
                     q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])
                 )
-            ) + (
+            ) +
+            (
                 sum(
                     q[j, k_t[t-1]] * Δt * (
                         j in pipe_idx ? 
@@ -247,42 +246,33 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
 
     # pump mass balance
     @constraint(model, pump_balance[i=1:n_m, t=2:T_k+1],
-        c_m[i, t] .== (
-            findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ? 
-            c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
-            (findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
-            c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
-            c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
-            )
+        c_m[i, t] == (
+            findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ?
+                c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
+                (
+                    findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
+                    c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
+                    c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
+                )
         )
     )
 
     # valve mass balance
     @constraint(model, valve_balance[i=1:n_v, t=2:T_k+1],
-        c_v[i, t] .== (
+        c_v[i, t] == (
             findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ? 
-            c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
-            (findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
-            c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
-            c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
-            )
+                c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
+                (
+                    findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
+                    c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
+                    c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
+                )
         )
     )
-
     # pipe segment transport
     s_p_end = cumsum(s_p, dims=1)
     s_p_start = s_p_end .- s_p .+ 1
     if disc_method == "explicit-central"
-        # @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1],
-        #     c_p[i, t] .== (
-        #         i ∈ s_p_start ?
-        #         0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_j[findfirst(x -> x == -1, A_inc_0[pipe_idx[findfirst(x -> x == i, s_p_start)], :, k_t[t-1]]), t-1] + (1 - abs(λ_s[i, k_t[t-1]])^2) * c_p[i, t-1] - 0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i+1, t-1] :
-        #         (i ∈ s_p_end ?
-        #         0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i-1, t-1] + (1 - abs(λ_s[i, k_t[t-1]])^2) * c_p[i, t-1] - 0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_j[findfirst(x -> x == 1, A_inc_0[pipe_idx[findfirst(x -> x == i, s_p_end)], :, k_t[t-1]]), t-1] :
-        #         0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i-1, t-1] + (1 - abs(λ_s[i, k_t[t-1]])^2) * c_p[i, t-1] - 0.5 * λ_s[i, k_t[t-1]] * (1 + λ_s[i, k_t[t-1]]) * c_p[i+1, t-1]
-        #         )
-        #     )
-        # )
         @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1], 
             c_p[i, t] .== begin
                 λ = λ_s[i, k_t[t-1]]

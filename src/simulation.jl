@@ -118,7 +118,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     wn.options.time.hydraulic_timestep = Δk # hydraulic time step
     wn.options.time.quality_timestep = Δt # water quality time step
     wn.options.time.report_timestep = Δk # reporting time step
-    wn.options.time.pattern_timestep = Δt # pattern time step
+    wn.options.time.pattern_timestep = Δk # pattern time step
 
     # # function for setting PRV settings
     # wn = set_pcv_settings(wntr, wn, network, prv_settings)
@@ -242,8 +242,14 @@ function epanet_wq(network, wntr, wn, sim_type, trace_node, source_cl, x0, kb, k
         end
 
         # set chlorine reaction parameters
+        # wn.options.reaction.bulk_coeff = -kb # units = 1/day
         wn.options.reaction.bulk_coeff = (-kb/3600/24) # units = 1/second
         wn.options.reaction.wall_coeff = (-kw/3600/24) # units = 1/second
+
+        # set tank decay coefficients
+        for (tank_name, tank) in wn.tanks()
+            tank.bulk_coeff = (-kb/3600/24)
+        end
 
         # set initial chlorine concentration
         for (node_name, node) in wn.nodes()
@@ -618,7 +624,7 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
         for (i, p) ∈ enumerate(pipe_idx)
 
             # compute mass transfer coefficient for pipe p (based on EPANET manual first-order decay model)
-            if Re[i, k_t] < 2000
+            if Re[i, k_t] < 2400
                 Sh = 3.65 + (0.0668 * (D_p[i]/L_p[i]) * Re[i, k_t] * Sc) /  (1 + 0.04 * ((D_p[i]/L_p[i]) * Re[i, k_t] * Sc)^(2/3))
             else
                 Sh = 0.0149 * Re[i, k_t]^0.88 * Sc^(1/3)

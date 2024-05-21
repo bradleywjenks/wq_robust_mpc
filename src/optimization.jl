@@ -87,7 +87,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     kf = zeros(n_p, n_t)
     for i ∈ 1:n_p
         for k ∈ 1:n_t
-            if Re[i, k] < 2000
+            if Re[i, k] < 2400
                 Sh[i, k] = 3.65 + (0.0668 * (D_p[i]/L_p[i]) * Re[i, k] * Sc) /  (1 + 0.04 * ((D_p[i]/L_p[i]) * Re[i, k] * Sc)^(2/3))
             else
                 Sh[i, k] = 0.0149 * Re[i, k]^0.88 * Sc^(1/3)
@@ -175,6 +175,15 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     @variable(model, x_bounds[1] ≤ c_p[i=1:n_s, t=1:T_k+1] ≤ x_bounds[2])
     @variable(model, u_bounds[1] ≤ u[i=1:n_j, t=1:n_t] ≤ u_bounds[2])
 
+    # @variable(model, c_r[i=1:n_r, t=1:T_k+1])
+    # @variable(model, c_j[i=1:n_j, t=1:T_k+1])
+    # @variable(model, c_tk[i=1:n_tk, t=1:T_k+1])
+    # @variable(model, c_m[i=1:n_m, t=1:T_k+1])
+    # @variable(model, c_v[i=1:n_v, t=1:T_k+1])
+    # @variable(model, c_p[i=1:n_s, t=1:T_k+1])
+    # @variable(model, u[i=1:n_j, t=1:n_t])
+
+
     ### define constraints
 
     # initial and boundary (reservoir) conditions
@@ -189,6 +198,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     b_idx = findall(x -> x ∈ b_loc, junction_idx)
     not_b_idx = setdiff(1:length(junction_idx), b_idx)
     @constraint(model, u[not_b_idx, :] .== 0)
+    # @constraint(model, u .== 0)
 
     # junction mass balance
     ϵ_reg = 1e-3
@@ -269,6 +279,8 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                 )
         )
     )
+
+
     # pipe segment transport
     s_p_end = cumsum(s_p, dims=1)
     s_p_start = s_p_end .- s_p .+ 1
@@ -279,8 +291,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                 
                 c_start = i ∈ s_p_start ? begin
                     idx = findfirst(x -> x == i, s_p_start)
-                    start_node = A_inc_0[pipe_idx[idx], :, k_t[t-1]]
-                    node_idx = findfirst(x -> x == -1, start_node)
+                    node_idx = findall(x -> x == -1, A_inc_0[pipe_idx[idx], :, 1])[1]
                     node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t-1] :
                     node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t-1] :
                     c_tk[findfirst(x -> x == node_idx, tank_idx), t-1]
@@ -288,18 +299,17 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
 
                 c_end = i ∈ s_p_end ? begin
                     idx = findfirst(x -> x == i, s_p_end)
-                    end_node = A_inc_0[pipe_idx[idx], :, k_t[t-1]]
-                    node_idx = findfirst(x -> x == 1, end_node)
+                    node_idx = findall(x -> x == 1, A_inc_0[pipe_idx[idx], :, 1])[1]
                     node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t-1] :
                     node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t-1] :
                     c_tk[findfirst(x -> x == node_idx, tank_idx), t-1]
                 end : nothing
 
                 i ∈ s_p_start ?
-                    0.5 * λ * (1 + λ) * c_start + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 + λ) * c_p[i+1, t-1] :
+                    0.5 * λ * (1 + λ) * c_start + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1] :
                 i ∈ s_p_end ?
-                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 + λ) * c_end :
-                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 + λ) * c_p[i+1, t-1]
+                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_end :
+                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1]
             end
         )
     
@@ -309,14 +319,16 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     end
 
     ### define objective function
-    # @objective(model, Min, ...)
+    @objective(model, Min, sum(u[i, t]^2 for i in 1:n_j, t in 1:n_t))
+
+    ### solve optimization problem
+    optimize!(model)
 
 
 
-    x = nothing
-    u = nothing
-
-    return x, u
+    return value.(c_r), value.(c_j), value.(c_tk), value.(u)
+    # return nothing, nothing
+    # return s_p_end, s_p_start
 
 
 end

@@ -16,11 +16,11 @@ network = load_network(net_name)
 
 # solver inputs
 sim_days = 1
-Δk = 60 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 60 # water quality time step (default is Δt = 60 seconds)
+Δk = 60 * 15 # hydraulic time step (default is Δk = 3600 seconds)
+Δt = 60 * 5 # water quality time step (default is Δt = 60 seconds)
 kb = 0.5 # (1/day)
 kw = 0 # (m/day)
-disc_method = "explicit-central" # "implicit-upwind", "explicit-central", "explicit-upwind"
+disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
 source_cl = repeat([0.5], network.n_r)
 control_pattern = "constant" # "constant", "random", "user-defined"
 b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (flow paced booster)

@@ -130,15 +130,15 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
     λ_p = λ_p .* qdir[pipe_idx, :]
 
-    # repeat parameters for each segment
-    λ_s = []
-    kf_s = []
-    D_p_s = []
-    for i in 1:n_p
-        λ_s = vcat(λ_s, repeat(λ_p[i, :]', s_p[i], 1))
-        kf_s = vcat(kf_s, repeat(kf[i, :]', s_p[i], 1))
-        D_p_s = vcat(D_p_s, repeat([D_p[i]], s_p[i]))
-    end
+    # # repeat parameters for each segment
+    # λ_s = []
+    # kf_s = []
+    # D_p_s = []
+    # for i in 1:n_p
+    #     λ_s = vcat(λ_s, repeat(λ_p[i, :]', s_p[i], 1))
+    #     kf_s = vcat(kf_s, repeat(kf[i, :]', s_p[i], 1))
+    #     D_p_s = vcat(D_p_s, repeat([D_p[i]], s_p[i]))
+    # end
 
     # check CFL condition
     for k ∈ 1:n_t
@@ -163,27 +163,6 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     
     ##### BUILD OPTIMIZATION MODEL #####
 
-    ### IPOPT ###
-    # model = Model(Ipopt.Optimizer)
-    # set_optimizer_attribute(model, "max_iter", 3000)
-    # set_optimizer_attribute(model, "warm_start_init_point", "yes")
-    # set_optimizer_attribute(model, "linear_solver", "ma57")
-    # # set_optimizer_attribute(model, "ma57_pivtol", 1e-8)
-    # # set_optimizer_attribute(model, "ma57_pre_alloc", 10.0)
-    # # set_optimizer_attribute(model, "ma57_automatic_scaling", "yes")
-    # set_optimizer_attribute(model, "mu_strategy", "adaptive")
-    # set_optimizer_attribute(model, "mu_oracle", "quality-function")
-    # set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
-    # # set_optimizer_attribute(model, "tol", 1e-6)
-    # # set_optimizer_attribute(model, "constr_viol_tol", 1e-9)
-    # set_optimizer_attribute(model, "constr_viol_tol", 1e-2)
-    # # set_optimizer_attribute(model, "fast_step_computation", "yes")
-    # # set_optimizer_attribute(model, "hessian_approximation", "exact")
-    # # set_optimizer_attribute(model, "hessian_approximation", "limited-memory")
-    # # set_optimizer_attribute(model, "derivative_test", "first-order")
-    # # set_optimizer_attribute(model, "derivative_test", "second-order")
-    # set_optimizer_attribute(model, "print_level", 5)
-
     ### GUROBI ###
     model = Model(Gurobi.Optimizer)
     # set_optimizer_attribute(model,"Method", 2)
@@ -202,14 +181,6 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     @variable(model, x_bounds[1] ≤ c_v[i=1:n_v, t=1:T_k+1] ≤ x_bounds[2])
     @variable(model, x_bounds[1] ≤ c_p[i=1:n_s, t=1:T_k+1] ≤ x_bounds[2])
     @variable(model, u_bounds[1] ≤ u[i=1:n_j, t=1:n_t] ≤ u_bounds[2])
-
-    # @variable(model, c_r[i=1:n_r, t=1:T_k+1])
-    # @variable(model, c_j[i=1:n_j, t=1:T_k+1])
-    # @variable(model, c_tk[i=1:n_tk, t=1:T_k+1])
-    # @variable(model, c_m[i=1:n_m, t=1:T_k+1])
-    # @variable(model, c_v[i=1:n_v, t=1:T_k+1])
-    # @variable(model, c_p[i=1:n_s, t=1:T_k+1])
-    # @variable(model, u[i=1:n_j, t=1:n_t])
 
 
     ### define constraints
@@ -311,13 +282,15 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     # pipe segment transport
     s_p_end = cumsum(s_p, dims=1)
     s_p_start = s_p_end .- s_p .+ 1
+
     if disc_method == "explicit-central"
         @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1], 
             c_p[i, t] .== begin
-                λ = λ_s[i, k_t[t-1]] 
-                kf = kf_s[i, k_t[t-1]]
-                D = D_p_s[i]
-                k_p = kb + ((4 * kw * kf) / (D * (kw + kf)))
+                p = findlast(x -> x <= i, s_p_start)[1]
+                λ_i = λ_p[p, k_t[t-1]] 
+                kf_i = kf[p, k_t[t-1]]
+                D_i = D_p[p]
+                k_i = kb + ((4 * kw * kf_i) / (D_i * (kw + kf_i)))
                 
                 c_start = i ∈ s_p_start ? begin
                     idx = findfirst(x -> x == i, s_p_start)
@@ -336,15 +309,48 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                 end : nothing
 
                 i ∈ s_p_start ?
-                    0.5 * λ * (1 + λ) * c_start + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1] - c_p[i, t-1] * k_p * Δt :
+                    0.5 * λ_i * (1 + λ_i) * c_start + (1 - abs(λ_i)^2) * c_p[i, t-1] - 0.5 * λ_i * (1 - λ_i) * c_p[i+1, t-1] - c_p[i, t-1] * k_i * Δt :
                 i ∈ s_p_end ?
-                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_end - c_p[i, t-1] * k_p * Δt :
-                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1] - c_p[i, t-1] * k_p * Δt
+                    0.5 * λ_i * (1 + λ_i) * c_p[i-1, t-1] + (1 - abs(λ_i)^2) * c_p[i, t-1] - 0.5 * λ_i * (1 - λ_i) * c_end - c_p[i, t-1] * k_i * Δt :
+                    0.5 * λ_i * (1 + λ_i) * c_p[i-1, t-1] + (1 - abs(λ_i)^2) * c_p[i, t-1] - 0.5 * λ_i * (1 - λ_i) * c_p[i+1, t-1] - c_p[i, t-1] * k_i * Δt
+            end
+        )
+
+    elseif disc_method == "implicit-upwind"
+        @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1], 
+            c_p[i, t] .== begin
+                p = findlast(x -> x <= i, s_p_start)[1]
+                qdir_i = qdir[p, k_t[t-1]]
+                λ_i = abs(λ_p[p, k_t[t-1]])
+                kf_i = kf[p, k_t[t-1]]
+                D_i = D_p[p]
+                k_i = kb + ((4 * kw * kf_i) / (D_i * (kw + kf_i)))
+                
+                c_up = i ∈ s_p_start ? begin
+                    qdir_i == 1 ? begin
+                        idx = findfirst(x -> x == i, s_p_start)
+                        node_idx = findall(x -> x == -1, A_inc_0[pipe_idx[idx], :, 1])[1]
+                        node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                        c_tk[findfirst(x -> x == node_idx, tank_idx), t]
+                    end : c_p[i+1, t] 
+                end : i ∈ s_p_end ? begin
+                    qdir_i == -1 ? begin
+                        idx = findfirst(x -> x == i, s_p_end)
+                        node_idx = findall(x -> x == 1, A_inc_0[pipe_idx[idx], :, 1])[1]
+                        node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                        c_tk[findfirst(x -> x == node_idx, tank_idx), t]
+                    end : c_p[i-1, t]
+                end : qdir_i == 1 ? c_p[i-1, t] : c_p[i+1, t]
+
+                (c_p[i, t-1] * (1 - k_i * Δt) + λ_i * c_up) / (1 + λ_i)
+ 
             end
         )
     
     else
-        @error "Only explicit-central discretization method has been implemented so far."
+        @error "Discretization method has not been implemented yet."
         return
     end
 
@@ -356,7 +362,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
 
 
 
-    return value.(c_r), value.(c_j), value.(c_tk), value.(c_m), value.(c_v), value.(c_p), value.(u)
+    return value.(c_r), value.(c_j), value.(c_tk), value.(c_m), value.(c_v), value.(c_p), s_p
     # return nothing, nothing
     # return s_p_end, s_p_start
 

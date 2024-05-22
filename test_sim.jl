@@ -16,15 +16,15 @@ network = load_network(net_name)
 
 # solver inputs
 sim_days = 1
-Δk = 15 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 5 # water quality time step (default is Δt = 60 seconds)
+Δk = 60 # hydraulic time step (default is Δk = 3600 seconds)
+Δt = 60 # water quality time step (default is Δt = 60 seconds)
 kb = 0.5 # (1/day)
 kw = 0 # (m/day)
-disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
+disc_method = "explicit-central" # "implicit-upwind", "explicit-central", "explicit-upwind"
 source_cl = repeat([0.5], network.n_r)
 control_pattern = "constant" # "constant", "random", "user-defined"
 b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (flow paced booster)
-x0 = 0 # initial conditions
+x0 = 0.5 # initial conditions
 
 # EPANET solver
 sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"
@@ -57,7 +57,7 @@ elements_to_plot = network.node_names[end] # e.g., network.node_names[1:4] or ne
 plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)
 
 # EPANET v. water quality solver
-node_to_plot = network.node_names[11]
+node_to_plot = network.node_names[2]
 plot_wq_solver_comparison(network, state_df, x, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
 
 

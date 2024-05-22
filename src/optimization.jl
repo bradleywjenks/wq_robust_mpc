@@ -129,9 +129,15 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
     λ_p = λ_p .* qdir[pipe_idx, :]
+
+    # repeat parameters for each segment
     λ_s = []
+    kf_s = []
+    D_p_s = []
     for i in 1:n_p
         λ_s = vcat(λ_s, repeat(λ_p[i, :]', s_p[i], 1))
+        kf_s = vcat(kf_s, repeat(kf[i, :]', s_p[i], 1))
+        D_p_s = vcat(D_p_s, repeat([D_p[i]], s_p[i]))
     end
 
     # check CFL condition
@@ -146,10 +152,10 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
     T_k = Int(T / Δt) # number of discrete time steps
     k_t = zeros(1, T_k+1)
-    for t ∈ 2:T_k+1
+    for t ∈ 1:T_k
         k_t[t] = searchsortedfirst(k_set, t*Δt) - 1
     end
-    k_t[1] = k_t[2]
+    k_t[end] = k_t[1]
     k_t = Int.(k_t)
 
 
@@ -157,11 +163,33 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     
     ##### BUILD OPTIMIZATION MODEL #####
 
+    ### IPOPT ###
+    # model = Model(Ipopt.Optimizer)
+    # set_optimizer_attribute(model, "max_iter", 3000)
+    # set_optimizer_attribute(model, "warm_start_init_point", "yes")
+    # set_optimizer_attribute(model, "linear_solver", "ma57")
+    # # set_optimizer_attribute(model, "ma57_pivtol", 1e-8)
+    # # set_optimizer_attribute(model, "ma57_pre_alloc", 10.0)
+    # # set_optimizer_attribute(model, "ma57_automatic_scaling", "yes")
+    # set_optimizer_attribute(model, "mu_strategy", "adaptive")
+    # set_optimizer_attribute(model, "mu_oracle", "quality-function")
+    # set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
+    # # set_optimizer_attribute(model, "tol", 1e-6)
+    # # set_optimizer_attribute(model, "constr_viol_tol", 1e-9)
+    # set_optimizer_attribute(model, "constr_viol_tol", 1e-2)
+    # # set_optimizer_attribute(model, "fast_step_computation", "yes")
+    # # set_optimizer_attribute(model, "hessian_approximation", "exact")
+    # # set_optimizer_attribute(model, "hessian_approximation", "limited-memory")
+    # # set_optimizer_attribute(model, "derivative_test", "first-order")
+    # # set_optimizer_attribute(model, "derivative_test", "second-order")
+    # set_optimizer_attribute(model, "print_level", 5)
+
+    ### GUROBI ###
     model = Model(Gurobi.Optimizer)
-    #set_optimizer_attribute(model,"Method", 2)
+    # set_optimizer_attribute(model,"Method", 2)
     # set_optimizer_attribute(model,"Presolve", 0)
     # set_optimizer_attribute(model,"Crossover", 0)
-    #set_optimizer_attribute(model,"NumericFocus", 3)
+    # set_optimizer_attribute(model,"NumericFocus", 3)
     # set_optimizer_attribute(model,"NonConvex", 2)
     # set_silent(model)
 
@@ -210,15 +238,14 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                         c_p[
                             qdir[j, k_t[t-1]] == 1 ? 
                             sum(s_p[1:findfirst(x -> x == j, pipe_idx)]) :
-                            sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1,
-                            t
+                            sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1, t
                         ] :
                     j in pump_idx ? 
                         c_m[findfirst(x -> x == j, pump_idx), t] :
                         c_v[findfirst(x -> x == j, valve_idx), t]
-                ) for j in findall(x -> x == 1, A_inc[:, i, k_t[t-1]])
+                ) for j in findall(x -> x == 1, A_inc[:, junction_idx[i], k_t[t-1]])
             ) / (
-                d[i, k_t[t-1]] + sum(q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])) + ϵ_reg
+                d[i, k_t[t-1]] + sum(q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, junction_idx[i], k_t[t-1]])) + ϵ_reg
             )
         ) + u[i, k_t[t-1]]
     )
@@ -229,7 +256,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
             c_tk[i, t-1] * V_tk[i, k_t[t-1]] -
             (
                 c_tk[i, t-1] * Δt * sum(
-                    q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])
+                    q[j, k_t[t-1]] for j in findall(x -> x == -1, A_inc[:, tank_idx[i], k_t[t-1]])
                 )
             ) +
             (
@@ -239,46 +266,46 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                             c_p[
                                 qdir[j, k_t[t-1]] == 1 ? 
                                 sum(s_p[1:findfirst(x -> x == j, pipe_idx)]) :
-                                sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1,
-                                t-1
+                                sum(s_p[1:findfirst(x -> x == j, pipe_idx) - 1]) + 1, t-1
                             ] :
                         (j in pump_idx ? 
                             c_m[findfirst(x -> x == j, pump_idx), t-1] :
                             c_v[findfirst(x -> x == j, valve_idx), t-1]
                         )
-                    ) for j in findall(x -> x == -1, A_inc[:, i, k_t[t-1]])
+                    ) for j in findall(x -> x == 1, A_inc[:, tank_idx[i], k_t[t-1]])
                 )
-            ) - (
-                kb * V_tk[i, k_t[t-1]] * Δt * -1
+            ) +
+            (
+                -1 * c_tk[i, t-1] * kb * V_tk[i, k_t[t-1]] * Δt
             )
         ) / V_tk[i, k_t[t]]
     )
 
     # pump mass balance
     @constraint(model, pump_balance[i=1:n_m, t=2:T_k+1],
-        c_m[i, t] == (
-            findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ?
-                c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
-                (
-                    findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
-                    c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
-                    c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
-                )
-        )
+        c_m[i, t] == begin
+            node_idx = findall(x -> x == -1, A_inc[pump_idx[i], :, k_t[t-1]])[1]
+            c_up = node_idx ∈ reservoir_idx ? 
+                c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                node_idx ∈ junction_idx ? 
+                    c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                    c_tk[findfirst(x -> x == node_idx, tank_idx), t]
+            c_up
+        end
     )
 
     # valve mass balance
     @constraint(model, valve_balance[i=1:n_v, t=2:T_k+1],
-        c_v[i, t] == (
-            findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in reservoir_idx ? 
-                c_r[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], reservoir_idx), t] :
-                (
-                    findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1] in junction_idx ? 
-                    c_j[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], junction_idx), t] :
-                    c_tk[findfirst(x -> x == findall(x -> x == -1, A_inc[i, :, k_t[t-1]])[1], tank_idx), t]
-                )
-        )
-    )
+        c_v[i, t] == begin
+            node_idx = findall(x -> x == -1, A_inc[valve_idx[i], :, k_t[t-1]])[1]
+            c_up = node_idx ∈ reservoir_idx ? 
+                c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                node_idx ∈ junction_idx ? 
+                    c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                    c_tk[findfirst(x -> x == node_idx, tank_idx), t]
+            c_up
+        end
+)
 
 
     # pipe segment transport
@@ -287,7 +314,10 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     if disc_method == "explicit-central"
         @constraint(model, pipe_transport[i=1:n_s, t=2:T_k+1], 
             c_p[i, t] .== begin
-                λ = λ_s[i, k_t[t-1]]
+                λ = λ_s[i, k_t[t-1]] 
+                kf = kf_s[i, k_t[t-1]]
+                D = D_p_s[i]
+                k_p = kb + ((4 * kw * kf) / (D * (kw + kf)))
                 
                 c_start = i ∈ s_p_start ? begin
                     idx = findfirst(x -> x == i, s_p_start)
@@ -306,10 +336,10 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                 end : nothing
 
                 i ∈ s_p_start ?
-                    0.5 * λ * (1 + λ) * c_start + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1] :
+                    0.5 * λ * (1 + λ) * c_start + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1] - c_p[i, t-1] * k_p * Δt :
                 i ∈ s_p_end ?
-                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_end :
-                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1]
+                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_end - c_p[i, t-1] * k_p * Δt :
+                    0.5 * λ * (1 + λ) * c_p[i-1, t-1] + (1 - abs(λ)^2) * c_p[i, t-1] - 0.5 * λ * (1 - λ) * c_p[i+1, t-1] - c_p[i, t-1] * k_p * Δt
             end
         )
     
@@ -319,14 +349,14 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     end
 
     ### define objective function
-    @objective(model, Min, sum(u[i, t]^2 for i in 1:n_j, t in 1:n_t))
+    # @objective(model, Min, sum(u[i, t]^2 for i in 1:n_j, t in 1:n_t))
 
     ### solve optimization problem
     optimize!(model)
 
 
 
-    return value.(c_r), value.(c_j), value.(c_tk), value.(u)
+    return value.(c_r), value.(c_j), value.(c_tk), value.(c_m), value.(c_v), value.(c_p), value.(u)
     # return nothing, nothing
     # return s_p_end, s_p_start
 

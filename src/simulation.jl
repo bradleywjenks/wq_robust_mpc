@@ -413,10 +413,10 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     vel_p_max = maximum(vel_p, dims=2)
     s_p = L_p ./ (vel_p_max .* Δt)
     # println(count(x -> x < 0.75, s_p))
-    if any(s_p .< 0.75)
-        @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
-        return
-    end
+    # if any(s_p .< 0.75)
+    #     @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
+    #     return
+    # end
     s_p = floor.(Int, s_p)
     s_p[s_p .== 0] .= 1
     n_s = sum(s_p)
@@ -426,10 +426,12 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     # λ_p[λ_p .< 0] .= 0 # bound λ to [0, 1]  
 
     # check CFL condition
-    for k ∈ 1:n_t
-        if any(Δt .>= Δx_p ./ vel_p[:, k])
-            @error "CFL condition not satisfied. Please input a smaller Δt."
-            return s_p
+    if disc_method == "explicit-central" || disc_method == "explicit-upwind"
+        for k ∈ 1:n_t
+            if any(Δt .>= Δx_p ./ vel_p[:, k])
+                @error "CFL condition not satisfied. Please input a smaller Δt."
+                return s_p
+            end
         end
     end
 

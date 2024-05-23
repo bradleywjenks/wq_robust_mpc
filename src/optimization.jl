@@ -119,10 +119,10 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     # set discretization parameters and variables
     vel_p_max = maximum(vel_p, dims=2)
     s_p = L_p ./ (vel_p_max .* Δt)
-    if any(s_p .< 0.75)
-        @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
-        return
-    end
+    # if any(s_p .< 0.75)
+    #     @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
+    #     return
+    # end
     s_p = floor.(Int, s_p)
     s_p[s_p .== 0] .= 1
     n_s = sum(s_p)
@@ -141,10 +141,12 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     # end
 
     # check CFL condition
-    for k ∈ 1:n_t
-        if any(Δt .>= Δx_p ./ vel_p[:, k])
-            @error "CFL condition not satisfied. Please input a smaller Δt."
-            return s_p
+    if disc_method == "explicit-central" || disc_method == "explicit-upwind"
+        for k ∈ 1:n_t
+            if any(Δt .>= Δx_p ./ vel_p[:, k])
+                @error "CFL condition not satisfied. Please input a smaller Δt."
+                return s_p
+            end
         end
     end
 
@@ -326,7 +328,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                 D_i = D_p[p]
                 k_i = kb + ((4 * kw * kf_i) / (D_i * (kw + kf_i)))
                 
-                c_up = i ∈ s_p_start ? begin
+                c_up = i ∈ s_p_start && i ∉ s_p_end ? begin
                     qdir_i == 1 ? begin
                         idx = findfirst(x -> x == i, s_p_start)
                         node_idx = findall(x -> x == -1, A_inc_0[pipe_idx[idx], :, 1])[1]
@@ -334,7 +336,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                         node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
                         c_tk[findfirst(x -> x == node_idx, tank_idx), t]
                     end : c_p[i+1, t] 
-                end : i ∈ s_p_end ? begin
+                end : i ∉ s_p_start && i ∈ s_p_end ? begin
                     qdir_i == -1 ? begin
                         idx = findfirst(x -> x == i, s_p_end)
                         node_idx = findall(x -> x == 1, A_inc_0[pipe_idx[idx], :, 1])[1]
@@ -342,6 +344,20 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                         node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
                         c_tk[findfirst(x -> x == node_idx, tank_idx), t]
                     end : c_p[i-1, t]
+                end : i ∈ s_p_start && i ∈ s_p_end ? begin
+                    qdir_i == 1 ? begin
+                        idx = findfirst(x -> x == i, s_p_start)
+                        node_idx = findall(x -> x == -1, A_inc_0[pipe_idx[idx], :, 1])[1]
+                        node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                        c_tk[findfirst(x -> x == node_idx, tank_idx), t]
+                    end : qdir_i == -1 ? begin
+                        idx = findfirst(x -> x == i, s_p_end)
+                        node_idx = findall(x -> x == 1, A_inc_0[pipe_idx[idx], :, 1])[1]
+                        node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                        c_tk[findfirst(x -> x == node_idx, tank_idx), t]
+                    end : nothing
                 end : qdir_i == 1 ? c_p[i-1, t] : c_p[i+1, t]
 
                 (c_p[i, t-1] * (1 - k_i * Δt) + λ_i * c_up) / (1 + λ_i)
@@ -362,7 +378,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
 
 
 
-    return value.(c_r), value.(c_j), value.(c_tk), value.(c_m), value.(c_v), value.(c_p), s_p
+    return value.(c_r), value.(c_j), value.(c_tk), value.(c_m), value.(c_v), value.(c_p), value.(u)
     # return nothing, nothing
     # return s_p_end, s_p_start
 

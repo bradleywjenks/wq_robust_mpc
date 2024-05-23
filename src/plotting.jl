@@ -578,7 +578,9 @@ function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_meth
     ymin = 0.5 * floor(ymin / 0.5)
     ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
     ymax = 0.5 * ceil(ymax / 0.5)
-    xmax = round(maximum(state_df.timestamp), digits=0)
+    xmax = 6 * ceil(maximum(state_df.timestamp) / 6)
+    # xmax = round(maximum(state_df.timestamp), digits=0)
+
 
 
     f = Figure(size=fig_size)

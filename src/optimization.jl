@@ -371,7 +371,12 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     end
 
     ### define objective function
-    # @objective(model, Min, sum(u[i, t]^2 for i in 1:n_j, t in 1:n_t))
+
+    ### minimize booster cost
+    ρ = 1e-3
+
+    @objective(model, Min, ρ * sum(u[i, k] * sum(q[j, k] for j in findall(x -> x == -1, A_inc[:, junction_idx[i], k])) for i ∈ 1:n_j, k ∈ 1:n_t))
+    # @objective(model, Min, sum(u[i, t] for i in 1:n_j, t in 1:n_t))
 
     ### solve optimization problem
     optimize!(model)

@@ -17,7 +17,7 @@ network = load_network(net_name)
 # solver inputs
 sim_days = 1
 Δk = 60 * 60 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 15  # water quality time step (default is Δt = 60 seconds)
+Δt = 60 * 60  # water quality time step (default is Δt = 60 seconds)
 kb = 0.5 # (1/day)
 kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"

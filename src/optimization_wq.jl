@@ -14,8 +14,9 @@ using Gurobi
 
 
 
+
 """
-Main function for optimizing water quality
+Main function for optimizing water quality (with known hydraulics)
 """
 function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, kw=0.1, disc_method="explicit-central", x_bounds=(0.5, 3), u_bounds=(0, 5))
 
@@ -129,16 +130,6 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
     λ_p = λ_p .* qdir[pipe_idx, :]
-
-    # # repeat parameters for each segment
-    # λ_s = []
-    # kf_s = []
-    # D_p_s = []
-    # for i in 1:n_p
-    #     λ_s = vcat(λ_s, repeat(λ_p[i, :]', s_p[i], 1))
-    #     kf_s = vcat(kf_s, repeat(kf[i, :]', s_p[i], 1))
-    #     D_p_s = vcat(D_p_s, repeat([D_p[i]], s_p[i]))
-    # end
 
     # check CFL condition
     if disc_method == "explicit-central" || disc_method == "explicit-upwind"
@@ -278,7 +269,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
                     c_tk[findfirst(x -> x == node_idx, tank_idx), t]
             c_up
         end
-)
+    )
 
 
     # pipe segment transport
@@ -389,4 +380,9 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
 
 
 end
+
+
+
+
+
 

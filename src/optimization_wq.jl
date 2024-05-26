@@ -156,7 +156,7 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     
     ##### BUILD OPTIMIZATION MODEL #####
 
-    ### GUROBI ###
+    ### GUROBI optimizer
     model = Model(Gurobi.Optimizer)
     # set_optimizer_attribute(model,"Method", 2)
     # set_optimizer_attribute(model,"Presolve", 0)

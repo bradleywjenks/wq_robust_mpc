@@ -15,6 +15,9 @@ sim_days = 7
 QA = true
 pmin = 15
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
-opt_data = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin, QA=QA)
+x_wq_bounds = (0.2, 4)
+u_wq_bounds = (0, 5)
+opt_data = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin, QA=QA, x_wq_bounds=x_wq_bounds, u_wq_bounds=u_wq_bounds)
 
-x_hyd, x_wq, u_pump, u_booster = optimize_hydraulic_wq(network, opt_data)
+x_wq_0 = 0.5 # initial water quality conditions
+x_hyd, x_wq, u_pump, u_booster = optimize_hydraulic_wq(network, opt_data; x_wq_0=x_wq_0)

@@ -216,6 +216,7 @@ def pump_dict(pump):
         pump_curve_points = [low_flow_point, pump_curve_points[0], pump_curve_points[1]]
 
     # fit quadratic curve to pump curve points
+    print(pump_curve_points)
     x_data = np.array([point[0] for point in pump_curve_points])
     y_data = np.array([point[1] for point in pump_curve_points])
     constants = np.poly1d(np.polyfit(x_data, y_data, 2))

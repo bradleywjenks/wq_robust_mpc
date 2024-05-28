@@ -45,15 +45,8 @@ Base.copy(r::SimResults) = SimResults(
 """
 Function for getting the number of hydraulic time steps when simulation period is modified.
 """
-function get_hydraulic_time_steps(network, net_name, sim_days, Δk)
-    if net_name == "Threenode" || net_name == "Net1"
-        n_t = network.n_t * sim_days * 3600 / Δk
-    elseif net_name == "Net3"
-        n_t = network.n_t * 3600 / Δk
-    else 
-        n_t = nothing
-        @error "Network name not recognized."
-    end
+function get_hydraulic_time_steps(network, sim_days, Δk)
+    n_t = (sim_days * 24 / network.n_t) * 24 * 3600 / Δk
     return n_t
 end
 
@@ -67,7 +60,7 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
 
     # currently set as a flow-paced booster, with b_u defined a priori for each water quality time step
 
-    T_k = Int(get_hydraulic_time_steps(network, net_name, sim_days, Δk) * 3600 / Δt)
+    T_k = Int(get_hydraulic_time_steps(network, sim_days, Δk) * 3600 / Δt)
 
     if net_name == "Threenode"
         b_loc = network.junction_idx
@@ -75,6 +68,10 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
         b_loc = vcat(network.junction_idx[1])
     elseif net_name == "Net3"
         b_loc = vcat(network.junction_idx[1], network.junction_idx[8], network.junction_idx[61])
+    elseif net_name == "2loopsNet"
+        b_loc = vcat(network.junction_idx[2], network.junction_idx[5])
+    elseif net_name == "Net25"
+        b_loc = vcat(network.junction_idx[1], network.junction_idx[13], network.junction_idx[16])
     else
         b_loc = nothing
         @error "Network name not recognized."

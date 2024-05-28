@@ -5,7 +5,7 @@ using Plots
 
 
 # load network data
-net_name = "Net1" # "Threenode", "Net1", "Net3"
+net_name = "Net1" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25"
 network = load_network(net_name)
 
 # create optimization parameters

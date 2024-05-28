@@ -1,0 +1,1 @@
+{"n_l": 10, "n_v": 0, "n_p": 10, "n_m": 0, "n_n": 9, "n_j": 6, "n_r": 3, "n_tk": 0, "n_t": 24, "headloss": "H-W", "junction_names": ["B", "D", "F", "E", "C", "A"], "reservoir_names": ["TS1", "TS2", "NTSN"], "tank_names": [], "valve_names": [], "pipe_names": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"], "prv_names": [], "pump_names": []}

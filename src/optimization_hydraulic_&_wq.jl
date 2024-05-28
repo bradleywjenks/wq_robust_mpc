@@ -87,8 +87,8 @@ Base.copy(o::OptParams) = OptParams(
 @with_kw mutable struct OptResults
     q::Matrix{Float64}
     h_j::Matrix{Float64}
-    h_tk::Matrix{Float64}
-    u_m::Matrix{Float64}
+    h_tk::Union{Nothing, Matrix{Float64}}
+    u_m::Union{Nothing, Matrix{Float64}}
     q⁺::Matrix{Float64}
     q⁻::Matrix{Float64}
     s::Matrix{Float64}
@@ -125,7 +125,7 @@ Function for making optimization parameters (hydraulic and water quality), which
 """
 function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin::Int64=15, pmax::Int64=150, Qmax_mul=10000, Qmin_mul=-10000, x_wq_bounds=(0.5, 3), u_wq_bounds=(0, 5), QA=false, quadratic_approx="relative", J=nothing, kb=0.5, kw=0)
 
-    n_t = Int(get_hydraulic_time_steps(network, network.name, sim_days, Δk))
+    n_t = Int(get_hydraulic_time_steps(network, sim_days, Δk))
     sim_type = "hydraulic"
     sim_results = epanet_solver(network, sim_type; sim_days=sim_days, Δk=Δk)
 
@@ -442,26 +442,26 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     ##### BUILD OPTIMIZATION MODEL #####
 
     ### GUROBI
-    # model = Model(Gurobi.Optimizer)
-    # # set_optimizer_attribute(model,"Method", 2)
-    # # set_optimizer_attribute(model,"Presolve", 0)
-    # # set_optimizer_attribute(model,"Crossover", 0)
-    # # set_optimizer_attribute(model,"NumericFocus", 1)
-    # set_optimizer_attribute(model,"NonConvex", 2)
-    # # set_silent(model)
+    model = Model(Gurobi.Optimizer)
+    # set_optimizer_attribute(model,"Method", 2)
+    # set_optimizer_attribute(model,"Presolve", 0)
+    # set_optimizer_attribute(model,"Crossover", 0)
+    # set_optimizer_attribute(model,"NumericFocus", 1)
+    set_optimizer_attribute(model,"NonConvex", 2)
+    # set_silent(model)
 
     ### IPOPT
-    model = Model(Ipopt.Optimizer)
-    set_optimizer_attribute(model, "max_iter", 3000)
-    # set_optimizer_attribute(model, "warm_start_init_point", "yes")
-    set_optimizer_attribute(model, "linear_solver", "ma57")
-    set_optimizer_attribute(model, "mu_strategy", "adaptive")
-    set_optimizer_attribute(model, "mu_oracle", "quality-function")
-    set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
-    # set_optimizer_attribute(model, "tol", 1e-6)
-    # set_optimizer_attribute(model, "constr_viol_tol", 1e-9)
-    # set_optimizer_attribute(model, "fast_step_computation", "yes")
-    set_optimizer_attribute(model, "print_level", 5)
+    # model = Model(Ipopt.Optimizer)
+    # set_optimizer_attribute(model, "max_iter", 3000)
+    # # set_optimizer_attribute(model, "warm_start_init_point", "yes")
+    # set_optimizer_attribute(model, "linear_solver", "ma57")
+    # set_optimizer_attribute(model, "mu_strategy", "adaptive")
+    # set_optimizer_attribute(model, "mu_oracle", "quality-function")
+    # set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
+    # # set_optimizer_attribute(model, "tol", 1e-6)
+    # # set_optimizer_attribute(model, "constr_viol_tol", 1e-9)
+    # # set_optimizer_attribute(model, "fast_step_computation", "yes")
+    # set_optimizer_attribute(model, "print_level", 5)
 
 
 
@@ -470,16 +470,21 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # hydrualic
     @variable(model, Qmin[i] ≤ q[i=1:n_l, k=1:n_t] ≤ Qmax[i])
     @variable(model, Hmin_j[i] ≤ h_j[i=1:n_j, k=1:n_t] ≤ Hmax_j[i])
-    @variable(model, Hmin_tk[i] ≤ h_tk[i=1:n_tk, k=1:n_t+1] ≤ Hmax_tk[i])
-    @variable(model, u_m[i=1:n_m, k=1:n_t])
-    @variable(model, q⁺[i=1:n_l, k=1:n_t])
-    @variable(model, q⁻[i=1:n_l, k=1:n_t])
+    @variable(model, 0 ≤ q⁺[i=1:n_l, k=1:n_t] ≤ Qmax[i])
+    @variable(model, 0 ≤ q⁻[i=1:n_l, k=1:n_t] ≤ abs(Qmin[i]))
     @variable(model, s[i=1:n_l, k=1:n_t])
     @variable(model, θ[i=1:n_l, k=1:n_t])
     @variable(model, θ⁺[i=1:n_l, k=1:n_t])
     @variable(model, θ⁻[i=1:n_l, k=1:n_t])
     # @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
     # @variable(model, z[i=1:n_l, k=1:n_t], Bin)
+
+    if length(pump_idx) > 0
+        @variable(model, u_m[i=1:n_m, k=1:n_t])
+    end
+    if length(tank_idx) > 0
+        @variable(model, Hmin_tk[i] ≤ h_tk[i=1:n_tk, k=1:n_t+1] ≤ Hmax_tk[i])
+    end
 
     # water quality
 
@@ -491,13 +496,22 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     ### define constraints
 
     # initial conditions
-    @constraint(model, tank_initial, h_tk[:, 1] == tk_init)
+    if length(tank_idx) > 0
+        @constraint(model, tank_initial, h_tk[:, 1] == tk_init)
+    end
 
     # engergy conservation
-    @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) + sum(A10_tank[i, j]*h_tk[j, k] for j ∈ tank_map[i]) == θ[i, k] + begin
+    if length(tank_idx) > 0
+        @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) + sum(A10_tank[i, j]*h_tk[j, k] for j ∈ tank_map[i]) == θ[i, k] + begin
+            i ∈ pump_idx ? u_m[findfirst(x -> x == i, pump_idx), k] : 0
+            end
+        )
+    else
+        @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) == θ[i, k] + begin
         i ∈ pump_idx ? u_m[findfirst(x -> x == i, pump_idx), k] : 0
         end
     )
+    end
 
     # head loss model
     if QA
@@ -532,23 +546,30 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     @constraint(model, flow_value[i=1:n_l, k=1:n_t], q⁺[i, k] - q⁻[i, k] == q[i, k])
     @constraint(model, flow_value_abs[i=1:n_l, k=1:n_t], q⁺[i, k] + q⁻[i, k] == s[i, k])
     @constraint(model, head_loss_value[i=1:n_l, k=1:n_t], θ⁺[i, k] - θ⁻[i, k] == θ[i, k])
-    @constraint(model, complementarity[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] == 0)
-    @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], 0 ≤ q⁺[i, k] ≤ Qmax[i])
-    @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], 0 ≤ q⁻[i, k] ≤ abs(Qmin[i]))
+
+    ## complementarity constraints for binary flow direction variables (quadratic)
+    ϵ_0 = 1
+    ϵ_k = 10^-2
+    @constraint(model, complementarity_0[i=1:n_l], -ϵ_0 ≤ q⁺[i, 1] * q⁻[i, 1] ≤ ϵ_0)
+    @constraint(model, complementarity_k[i=1:n_l, k=2:n_t], -ϵ_k ≤ q⁺[i, k] * q⁻[i, k] ≤ ϵ_k)
     # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], 0 ≤ q⁺[i, k] - z[i, k]*Qmax[i] ≤ 0)
     # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], 0 ≤ q⁻[i, k] + z[i, k]*Qmax[i] ≤ Qmax[i])
     # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], 0 ≤ θ⁺[i, k] - z[i, k]*10^3 ≤ 0)
     # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], 0 ≤ θ⁻[i, k] + z[i, k]*10^3 ≤ 10^3)
-
-
-    # complementarity constraints for binary flow direction variables (quadratic)
     # @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0)
 
     # complementarity constraints for pump status (bilinear)
-    @constraint(model, pump_status[i=1:n_m, k=1:n_t], u_m[i, k] * q[pump_idx[i], k] == 0)
+    # if length(pump_idx) > 0
+    #     ϵ_0 = 10
+    #     @constraint(model, pump_status_0[i=1:n_m], u_m[i, 1] * q[pump_idx[i], 1] ≤ ϵ_0)
+    #     ϵ_k = 10^-1
+    #     @constraint(model, pump_status_k[i=1:n_m, k=2:n_t], u_m[i, k] * q[pump_idx[i], k] ≤ ϵ_k)
+    # end
 
     # tank_balance
-    @constraint(model, tank_balance[i=1:n_tk, k=1:n_t], h_tk[i, k+1] == h_tk[i, k] + sum(A10_tank[j, i]*(q[j, k] / 1000) for j ∈ link_tank_map[i]) * Δk / tk_area[i])
+    if length(tank_idx) > 0
+        @constraint(model, tank_balance[i=1:n_tk, k=1:n_t], h_tk[i, k+1] == h_tk[i, k] + sum(A10_tank[j, i]*(q[j, k] / 1000) for j ∈ link_tank_map[i]) * Δk / tk_area[i])
+    end
 
     # mass conservation
     @constraint(model, mass_conservation[i=1:n_j, k=1:n_t], sum(A12'[i, j]*q[j, k] for j ∈ link_junction_map[i]) == d[i, k])
@@ -570,12 +591,12 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     optimize!(model)
 
 
-    ### extract results
+    ### extract results`
     return OptResults(
         q=value.(q),
         h_j=value.(h_j),
-        h_tk=value.(h_tk),
-        u_m=value.(u_m),
+        h_tk=nothing,
+        u_m=nothing,
         q⁺=value.(q⁺),
         q⁻=value.(q⁻),
         s=value.(s),

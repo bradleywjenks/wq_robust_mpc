@@ -72,6 +72,8 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
         b_loc = vcat(network.junction_idx[2], network.junction_idx[5])
     elseif net_name == "Net25"
         b_loc = vcat(network.junction_idx[1], network.junction_idx[13], network.junction_idx[16])
+    elseif net_name == "modena"
+        b_loc = vcat(network.junction_idx[52], network.junction_idx[136])
     else
         b_loc = nothing
         @error "Network name not recognized."

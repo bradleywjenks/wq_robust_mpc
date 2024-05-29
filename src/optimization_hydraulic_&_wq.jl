@@ -353,11 +353,66 @@ end
 
 
 
+"""
+Function for getting starting point values for the optimal control problem
+"""
+function get_starting_point(network, opt_params)
+    sim_type = "hydraulic"
+    sim_results = epanet_solver(network, sim_type; sim_days=opt_params.sim_days, Δk=opt_params.Δk)
+    h = Matrix(sim_results.head[:, 2:end])'
+    q = Matrix(sim_results.flow[:, 2:end])'
+
+    # initial flow values
+    q_0 = q
+    q⁺_0 = abs.(q_0); q⁺_0[q_0 .< 0] .= 0
+    q⁻_0 = abs.(q_0); q⁻_0[q_0 .> 0] .= 0
+    @assert(q_0 == q⁺_0 - q⁻_0)
+    z_0 = zeros(size(q_0)); z_0[q_0 .< 0] .= 0; z_0[q_0 .> 0] .= 1
+
+    # initial head loss values
+    a, b, = opt_params.a, opt_params.b
+    r, nexp = network.r, network.nexp
+    θ⁺_0 = zeros(size(q_0))
+    θ⁻_0 = zeros(size(q_0))
+    for k ∈ 1:size(q, 2)
+        # head loss across pipe and valve links
+        for i ∈ vcat(network.pipe_idx, network.valve_idx)
+            if opt_params.QA
+                θ⁺_0[i, k] == a[i, k] * q⁺_0[i, k]^2 + b[i, k] * q⁺_0[i, k]
+                θ⁻_0[i, k] == a[i, k] * q⁻_0[i, k]^2 + b[i, k] * q⁻_0[i, k]
+            else
+                θ⁺_0[i, k] == r[i] * q⁺_0[i, k]^nexp[i]
+                θ⁻_0[i, k] == r[i] * q⁻_0[i, k]^nexp[i]
+            end
+        end
+        # head gain across pump links
+        for i ∈ network.pump_idx
+            θ⁺_0[i, k] == -1 * network.pump_A[findfirst(x -> x == i, network.pump_idx)] * (q⁺_0[i, k] / 1000)^2 - network.pump_B[findfirst(x -> x == i, network.pump_idx)] * (q⁺_0[i, k] / 1000) - network.pump_C[findfirst(x -> x == i, network.pump_idx)]
+        end
+    end
+    θ_0 = θ⁺_0 - θ⁻_0
+        
+
+    # initial head values
+    h_j_0 = h[network.junction_idx, :]
+    h_tk_0 = h[network.tank_idx, :]
+
+    # initial pump slack variables
+    u_m_0 = zeros(size(q_0))
+
+    return h_j_0, h_tk_0, q_0, q⁺_0, q⁻_0, z_0, θ_0, θ⁺_0, θ⁻_0, u_m_0
+end
+
+
+
+
+
+
 
 """
 Main function for solving the joint hydraulic and water quality optimization problem
 """
-function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0.5, solver="Gurobi", integer=true)
+function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0.5, solver="Gurobi", integer=true, warm_start=false)
 
     ##### SET OPTIMIZATION PARAMETERS #####
 
@@ -461,12 +516,18 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         
         ### GUROBI
         model = Model(Gurobi.Optimizer)
+        set_optimizer_attribute(model, "TimeLimit", 3600.0) # 1-hour time limit
         # set_optimizer_attribute(model,"Method", 2)
         # set_optimizer_attribute(model,"Presolve", 0)
         # set_optimizer_attribute(model,"Crossover", 0)
         # set_optimizer_attribute(model,"NumericFocus", 1)
         # set_optimizer_attribute(model,"NonConvex", 2)
-        # set_optimizer_attribute(model, "FeasibilityTol", 1e-3)
+        set_optimizer_attribute(model, "FeasibilityTol", 1e-3)
+        set_optimizer_attribute(model, "IntFeasTol", 1e-3)
+        set_optimizer_attribute(model, "MIPFocus", 1)
+        set_optimizer_attribute(model, "MIPGap", 0.05)
+        # set_optimizer_attribute(model, "Threads", 4)
+        
         # set_silent(model)
 
     elseif solver == "Ipopt"
@@ -515,28 +576,20 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
     end
 
-    ### fix variables
-
-    # fix slack variable u_m for pipe and valve links
-    for i ∈ 1:n_l
-        if i ∉ pump_idx
-            fix.(u_m[i, :], 0.0; force=true)
-        end
-    end
-
-    # fix flow direction variable z for pump links
-    for i ∈ pump_idx
-        fix.(z[i, :], 1.0; force=true)
-        # fix.(θ⁻[i, :], 0.0; force=true)
-    end
-
-
 
     # water quality
     # TO BE COMPLETED!!!
 
 
 
+    ### fix variables
+    for i ∈ setdiff(1:n_l, pump_idx)
+        fix.(u_m[i, :], 0.0; force=true)
+    end
+    for i ∈ pump_idx
+        fix.(z[i, :], 1.0; force=true)
+        fix.(θ⁻[i, :], 0.0, force=true)
+    end
 
 
 
@@ -577,12 +630,13 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     @constraint(model, flow_value[i=1:n_l, k=1:n_t], q⁺[i, k] - q⁻[i, k] == q[i, k])
     @constraint(model, flow_value_abs[i=1:n_l, k=1:n_t], q⁺[i, k] + q⁻[i, k] == s[i, k])
     @constraint(model, head_loss_value[i=1:n_l, k=1:n_t], θ⁺[i, k] - θ⁻[i, k] == θ[i, k])
+
     if solver == "Gurobi"
         @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
         @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
         @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
-    else
+    elseif solver == "Ipopt"
         @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ Qmax[i, k])
         @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ abs(Qmin[i, k]))
         @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ θmax[i, k])
@@ -591,18 +645,15 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         @constraint(model, head_loss_direction[i=1:n_l, k=1:n_t], θ⁺[i, k] * θ⁻[i, k] == 0)
     end
 
-    # @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
-
-    # complementarity constraints for pump status (bilinear)
+    # complementarity constraints for pump status
     if !isempty(pump_idx)
         if solver == "Gurobi"
-            @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] == 0)
-            # @constraint(model, pump_status[i=1:n_l, k=1:n_t], [u_m[i, k], q[i, k]] in SOS1())
-            # NB: can be replaced with a big-M formulation and additional binary variables (which is what Gurobi does here... but do not need binary variables as an output, so let Gurobi handle this internally)
-        else
-            @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] == 0)
+            @constraint(model, pump_status[i=1:n_l, k=1:n_t], [u_m[i, k], q[i, k]] in SOS1())
+            # NB: can be replaced with a big-M formulation and additional binary variables (which is what Gurobi does... but we don't need binary variables as an output, so let Gurobi handle this internally)
+        elseif solver == "Ipopt"
+            ϵ_tol = 1e-1
+            @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≤ ϵ_tol)
         end
-            
     end
 
     # tank_balance
@@ -628,6 +679,27 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
 
 
+
+    ### warm start optimization problem
+    if warm_start
+        h_j_0, h_tk_0, q_0, q⁺_0, q⁻_0, z_0, θ_0, θ⁺_0, θ⁻_0, u_m_0 = get_starting_point(network, opt_params)
+        set_start_value.(h_j, h_j_0)
+        # set_start_value.(q, q_0)
+        set_start_value.(q⁺, q⁺_0)
+        set_start_value.(q⁻, q⁻_0)
+        set_start_value.(z, z_0)
+        # set_start_value.(θ, θ_0)
+        # set_start_value.(θ⁺, θ⁺_0)
+        # set_start_value.(θ⁻, θ⁻_0)
+        # set_start_value.(u_m, u_m_0)
+        if !isempty(tank_idx)
+            set_start_value.(h_tk, h_tk_0)
+        end
+    end
+
+
+
+
     ### solve optimization problem
     optimize!(model)
 
@@ -637,44 +709,20 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     
     if term_status ∉ accepted_status
 
-        function conflict_cons(model)
-            compute_conflict!(model)
-            error_found = false
-            conflict_constraint_list = ConstraintRef[]
-            for (F, S) in list_of_constraint_types(model)
-                for con in all_constraints(model, F, S)
-                    try
-                        if MOI.get(model, MOI.ConstraintConflictStatus(), con) == MOI.IN_CONFLICT
-                            push!(conflict_constraint_list, con)
-                            println(con)
-                        end
-                    catch
-                        con_type = MOI.get(model, MOI.ConstraintConflictStatus(), con)
-                        if ~error_found
-                            @info "Only one error will be printed"
-                            error("error found with " * string(F) * string(S) * string(con) * con_type)
-                            error_found = true
-                        end
-                    end
-                end
-            end
-        end
-
-        conflict_cons(model)
-
+        @error "Optimization problem did not converge. Please check the model formulation and solver settings."
 
         return OptResults(
             q=zeros(n_l, n_t),
             h_j=zeros(n_j, n_t),
-            h_tk=nothing,
-            u_m=nothing,
+            h_tk=zeros(n_tk, n_t),
+            u_m=zeros(n_l, n_t),
             q⁺=zeros(n_l, n_t),
             q⁻=zeros(n_l, n_t),
             s=zeros(n_l, n_t),
             θ=zeros(n_l, n_t),
             θ⁺=zeros(n_l, n_t),
             θ⁻=zeros(n_l, n_t),
-            z=nothing
+            z=zeros(n_l, n_t)
         )
     end
 

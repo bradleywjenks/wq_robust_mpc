@@ -596,7 +596,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # complementarity constraints for pump status (bilinear)
     if !isempty(pump_idx)
         if solver == "Gurobi"
-            @constraint(model, pump_status[i=1:n_l, k=1:n_t], [u_m[i, k], q[i, k]] in SOS1())
+            @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] == 0)
+            # @constraint(model, pump_status[i=1:n_l, k=1:n_t], [u_m[i, k], q[i, k]] in SOS1())
             # NB: can be replaced with a big-M formulation and additional binary variables (which is what Gurobi does here... but do not need binary variables as an output, so let Gurobi handle this internally)
         else
             @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] == 0)

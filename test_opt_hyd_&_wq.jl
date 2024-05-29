@@ -24,8 +24,9 @@ opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin,
 # run optimization solver
 cp_time = @elapsed begin
     x_wq_0 = 0.5 # initial water quality conditions
-    solver = "Gurobi" # "Gurobi", "Ipopt"
+    solver = "Ipopt" # "Gurobi", "Ipopt"
+    heuristic = false
     integer = true
-    warm_start = false
-    opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start)
+    warm_start = true
+    opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
 end

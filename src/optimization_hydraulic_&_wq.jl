@@ -357,6 +357,7 @@ end
 Function for getting starting point values for the optimal control problem
 """
 function get_starting_point(network, opt_params)
+
     sim_type = "hydraulic"
     sim_results = epanet_solver(network, sim_type; sim_days=opt_params.sim_days, Δk=opt_params.Δk)
     h = Matrix(sim_results.head[:, 2:end])'
@@ -364,8 +365,8 @@ function get_starting_point(network, opt_params)
 
     # initial flow values
     q_0 = q
-    q⁺_0 = abs.(q_0); q⁺_0[q_0 .< 0] .= 0
-    q⁻_0 = abs.(q_0); q⁻_0[q_0 .> 0] .= 0
+    q⁺_0 = abs.(q_0); q⁺_0[q_0 .<= 0] .= 0
+    q⁻_0 = abs.(q_0); q⁻_0[q_0 .>= 0] .= 0
     @assert(q_0 == q⁺_0 - q⁻_0)
     z_0 = zeros(size(q_0)); z_0[q_0 .< 0] .= 0; z_0[q_0 .> 0] .= 1
 
@@ -395,7 +396,7 @@ function get_starting_point(network, opt_params)
 
     # initial head values
     h_j_0 = h[network.junction_idx, :]
-    h_tk_0 = h[network.tank_idx, :]
+    h_tk_0 = hcat(h[network.tank_idx, :], h[network.tank_idx, 1])
 
     # initial pump slack variables
     u_m_0 = zeros(size(q_0))
@@ -412,7 +413,7 @@ end
 """
 Main function for solving the joint hydraulic and water quality optimization problem
 """
-function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0.5, solver="Gurobi", integer=true, warm_start=false)
+function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0.5, solver="Gurobi", integer=true, warm_start=false, heuristic=false)
 
     ##### SET OPTIMIZATION PARAMETERS #####
 
@@ -522,11 +523,15 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         # set_optimizer_attribute(model,"Crossover", 0)
         # set_optimizer_attribute(model,"NumericFocus", 1)
         # set_optimizer_attribute(model,"NonConvex", 2)
-        set_optimizer_attribute(model, "FeasibilityTol", 1e-3)
-        set_optimizer_attribute(model, "IntFeasTol", 1e-3)
-        set_optimizer_attribute(model, "MIPFocus", 1)
+        set_optimizer_attribute(model, "FeasibilityTol", 1e-4)
+        set_optimizer_attribute(model, "IntFeasTol", 1e-4)
+        set_optimizer_attribute(model, "OptimalityTol", 1e-4)
+        # set_optimizer_attribute(model, "MIPFocus", 1)
         set_optimizer_attribute(model, "MIPGap", 0.05)
         # set_optimizer_attribute(model, "Threads", 4)
+        if heuristic
+            set_optimizer_attribute(model, "NoRelHeurTime", 60*15)
+        end
         
         # set_silent(model)
 
@@ -540,15 +545,17 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         set_optimizer_attribute(model, "mu_strategy", "adaptive")
         set_optimizer_attribute(model, "mu_oracle", "quality-function")
         set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
-        set_optimizer_attribute(model, "tol", 1e-3)
-        set_optimizer_attribute(model, "constr_viol_tol", 1e-4)
+        set_optimizer_attribute(model, "tol", 1e-4)
+        set_optimizer_attribute(model, "constr_viol_tol", 1e-6)
         # set_optimizer_attribute(model, "fast_step_computation", "yes")
         set_optimizer_attribute(model, "print_level", 5)
 
         # @error "Optimization solver $solver has not been implemented in this work."
 
     else
+
         @error "Optimization solver $solver has not been implemented in this work."
+        
     end
 
 
@@ -574,6 +581,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
     else
         @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
+        # @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
     end
 
 
@@ -589,6 +597,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     for i ∈ pump_idx
         fix.(z[i, :], 1.0; force=true)
         fix.(θ⁻[i, :], 0.0, force=true)
+        fix.(q⁻[i, :], 0.0, force=true)
     end
 
 
@@ -634,15 +643,13 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     if solver == "Gurobi"
         @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
-        @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
-        @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
+        # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
+        # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
     elseif solver == "Ipopt"
-        @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ Qmax[i, k])
-        @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ abs(Qmin[i, k]))
-        @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ θmax[i, k])
-        @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ abs(θmin[i, k]))
-        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] == 0)
-        @constraint(model, head_loss_direction[i=1:n_l, k=1:n_t], θ⁺[i, k] * θ⁻[i, k] == 0)
+        # @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] == 0)
+        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 1e-4)
+        # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
+        # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
     end
 
     # complementarity constraints for pump status
@@ -651,8 +658,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
             @constraint(model, pump_status[i=1:n_l, k=1:n_t], [u_m[i, k], q[i, k]] in SOS1())
             # NB: can be replaced with a big-M formulation and additional binary variables (which is what Gurobi does... but we don't need binary variables as an output, so let Gurobi handle this internally)
         elseif solver == "Ipopt"
-            ϵ_tol = 1e-1
-            @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≤ ϵ_tol)
+            # @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] == 0)
+            @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≤ 1e-4)
         end
     end
 
@@ -675,7 +682,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     #     # insert code here...
     # end
     # @objective(model, Min, sum(u_m[i, k] * q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
-    @objective(model, Min, sum(h_j[j, k] for j ∈ 1:n_j, k ∈ 1:n_t))
+    @objective(model, Min, 0.0)
 
 
 

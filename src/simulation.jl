@@ -46,7 +46,7 @@ Base.copy(r::SimResults) = SimResults(
 Function for getting the number of hydraulic time steps when simulation period is modified.
 """
 function get_hydraulic_time_steps(network, sim_days, Δk)
-    n_t = (sim_days * 24 / network.n_t) * 24 * 3600 / Δk
+    n_t = sim_days * 24 * 3600 / Δk
     return n_t
 end
 
@@ -64,7 +64,7 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
 
     if net_name == "Threenode"
         b_loc = network.junction_idx
-    elseif net_name == "Net1"
+    elseif net_name == "Net1" || net_name == "Net1_no_tank"
         b_loc = vcat(network.junction_idx[1])
     elseif net_name == "Net3"
         b_loc = vcat(network.junction_idx[1], network.junction_idx[8], network.junction_idx[61])

@@ -2,7 +2,7 @@
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "4826b4b5b6ce166a4ed1f276d7840590387107e2"
+project_hash = "97f5c45cd615053b90c212c6dac4db36fc902e3e"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "016833eb52ba2d6bea9fcb50ca295980e728ee24"
@@ -638,6 +638,11 @@ deps = ["ColorTypes", "Colors", "FileIO", "FixedPointNumbers", "FreeTypeAbstract
 git-tree-sha1 = "3ef8015aefacb449d183201714a9c32d86019acc"
 uuid = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 version = "0.9.11"
+
+[[deps.GMP_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "781609d7-10c4-51f6-84f2-b8444358ff6d"
+version = "6.2.1+2"
 
 [[deps.GPUArraysCore]]
 deps = ["Adapt"]
@@ -1317,6 +1322,12 @@ git-tree-sha1 = "0877504529a3e5c3343c6f8b4c0381e57e4387e4"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "1.0.2"
 
+[[deps.Ncurses_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "3ac1ca10bae513c9cc8f83d7734b921b8007b574"
+uuid = "68e3532b-a499-55ff-9963-d1c0c0748b3a"
+version = "6.5.0+0"
+
 [[deps.Netpbm]]
 deps = ["FileIO", "ImageCore", "ImageMetadata"]
 git-tree-sha1 = "d92b107dbb887293622df7697a2223f9f8176fcd"
@@ -1628,6 +1639,12 @@ weakdeps = ["FixedPointNumbers"]
     [deps.Ratios.extensions]
     RatiosFixedPointNumbersExt = "FixedPointNumbers"
 
+[[deps.Readline_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Ncurses_jll"]
+git-tree-sha1 = "9d70e0c890a6c7ca3eb1ca0eaabba4d34795b7fb"
+uuid = "05236dd9-4125-5232-aa7c-9ec0c9b2c25a"
+version = "8.2.1+0"
+
 [[deps.RecipesBase]]
 deps = ["PrecompileTools"]
 git-tree-sha1 = "5c3d09cc4f31f5fc6af001c250bf1278733100ff"
@@ -1709,6 +1726,24 @@ deps = ["ExprTools", "SHA", "Serialization"]
 git-tree-sha1 = "6aacc5eefe8415f47b3e34214c1d79d2674a0ba2"
 uuid = "7e49a35a-f44a-4d26-94aa-eba1b4ca6b47"
 version = "0.5.12"
+
+[[deps.SCIP]]
+deps = ["Ipopt_jll", "Libdl", "LinearAlgebra", "MathOptInterface", "SCIP_PaPILO_jll", "SCIP_jll"]
+git-tree-sha1 = "ac0512c46cd91744f62463514f2c581025ea5b93"
+uuid = "82193955-e24f-5292-bf16-6f2c5261a85f"
+version = "0.11.6"
+
+[[deps.SCIP_PaPILO_jll]]
+deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "GMP_jll", "Ipopt_jll", "JLLWrappers", "Libdl", "OpenBLAS32_jll", "Pkg", "Readline_jll", "Zlib_jll", "bliss_jll", "boost_jll", "oneTBB_jll"]
+git-tree-sha1 = "7705b5779724f35d78351548f24c7f7656e61bc2"
+uuid = "fc9abe76-a5e6-5fed-b0b7-a12f309cf031"
+version = "0.1.0+3"
+
+[[deps.SCIP_jll]]
+deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "GMP_jll", "Ipopt_jll", "JLLWrappers", "Libdl", "Pkg", "Readline_jll", "Zlib_jll", "bliss_jll", "boost_jll"]
+git-tree-sha1 = "4a23f926d711535640963aea90a3f5d931ae52c7"
+uuid = "e5ac4fe4-a920-5659-9bf8-f9f73e9e79ce"
+version = "0.2.1+0"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -2306,6 +2341,18 @@ deps = ["ChainRulesCore", "MacroTools"]
 git-tree-sha1 = "27798139afc0a2afa7b1824c206d5e87ea587a00"
 uuid = "700de1a5-db45-46bc-99cf-38207098b444"
 version = "0.2.5"
+
+[[deps.bliss_jll]]
+deps = ["Artifacts", "GMP_jll", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "f8b75e896a326a162a4f6e998990521d8302c810"
+uuid = "508c9074-7a14-5c94-9582-3d4bc1871065"
+version = "0.77.0+1"
+
+[[deps.boost_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
+git-tree-sha1 = "7a89efe0137720ca82f99e8daa526d23120d0d37"
+uuid = "28df3c45-c428-5900-9ff8-a3135698ca75"
+version = "1.76.0+1"
 
 [[deps.eudev_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "gperf_jll"]

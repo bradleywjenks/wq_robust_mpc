@@ -22,7 +22,7 @@ opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin,
 
 
 # run optimization solver
-cp_time = @elapsed begin
+cpu_time = @elapsed begin
     x_wq_0 = 0.5 # initial water quality conditions
     solver = "Ipopt" # "Gurobi", "Ipopt"
     heuristic = false

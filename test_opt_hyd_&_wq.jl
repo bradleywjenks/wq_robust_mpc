@@ -5,13 +5,13 @@ using Plots
 
 
 # load network data
-net_name = "BWFLnet" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet"
+net_name = "modena" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name)
 
 # create optimization parameters
 sim_days = 1
-Δk = 60 * 15
-Δt = 60 * 15
+Δk = 60 * 60
+Δt = 60 * 60
 QA = true
 pmin = 15
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"

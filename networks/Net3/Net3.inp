@@ -13,7 +13,6 @@ UPDATE: Added coordinates for Junction 177
  35              	12.5        	1           	4               	;
  40              	131.9       	0           	                	;
  50              	116.5       	0           	                	;
- 60              	0           	0           	                	;
  61              	0           	0           	                	;
  101             	42          	189.95      	                	;
  103             	43          	133.2       	                	;
@@ -115,7 +114,6 @@ UPDATE: Added coordinates for Junction 177
  20              	3               	20              	99          	99          	199         	0           	Open  	;
  40              	1               	40              	99          	99          	199         	0           	Open  	;
  50              	2               	50              	99          	99          	199         	0           	Open  	;
- 60              	4               	60              	1231        	24          	140         	0           	Open  	;
  101             	10              	101             	14200       	18          	110         	0           	Open  	;
  103             	101             	103             	1350        	16          	130         	0           	Open  	;
  105             	101             	105             	2540        	12          	130         	0           	Open  	;
@@ -231,7 +229,7 @@ UPDATE: Added coordinates for Junction 177
 [PUMPS]
 ;ID              	Node1           	Node2           	Parameters
  10              	5               	10              	HEAD 1	;
- 335             	60              	61              	HEAD 2	;
+ 335             	4               	61              	HEAD 2	;
 
 [VALVES]
 ;ID              	Node1           	Node2           	Diameter    	Type	Setting     	MinorLoss   
@@ -275,11 +273,11 @@ UPDATE: Added coordinates for Junction 177
 
 [CURVES]
 ;ID              	X-Value     	Y-Value
-;PUMP: PUMP: PUMP: PUMP: PUMP: PUMP: Pump Curve for Pump 10 (Lake Source)
+;PUMP: PUMP: PUMP: PUMP: PUMP: PUMP: PUMP: Pump Curve for Pump 10 (Lake Source)
  1               	0           	104.        
  1               	2000.       	92.         
  1               	4000.       	63.         
-;PUMP: PUMP: PUMP: PUMP: PUMP: PUMP: Pump Curve for Pump 335 (River Source)
+;PUMP: PUMP: PUMP: PUMP: PUMP: PUMP: PUMP: Pump Curve for Pump 335 (River Source)
  2               	0           	200.        
  2               	8000.       	138.        
  2               	14000.      	86.         
@@ -288,18 +286,6 @@ UPDATE: Added coordinates for Junction 177
 ;Lake source operates only part of the day
 Link 10 OPEN AT TIME 1
 Link 10 CLOSED AT TIME 15
-Link 10 OPEN AT TIME 25
-Link 10 CLOSED AT TIME 39
-Link 10 OPEN AT TIME 49
-Link 10 CLOSED AT TIME 63
-Link 10 OPEN AT TIME 73
-Link 10 CLOSED AT TIME 87
-Link 10 OPEN AT TIME 97
-Link 10 CLOSED AT TIME 111
-Link 10 OPEN AT TIME 121
-Link 10 CLOSED AT TIME 135
-Link 10 OPEN AT TIME 145
-Link 10 CLOSED AT TIME 159
 
 ;Pump 335 controlled by level in Tank 1
 ;When pump is closed, bypass pipe is opened
@@ -312,7 +298,9 @@ Link 335 CLOSED IF Node 1 ABOVE 19.1
 
 
 
+
 [RULES]
+
 
 
 
@@ -350,7 +338,7 @@ Link 335 CLOSED IF Node 1 ABOVE 19.1
 ;Tank            	Model
 
 [TIMES]
- Duration           	168:00 
+ Duration           	24:00
  Hydraulic Timestep 	1:00 
  Quality Timestep   	0:05 
  Pattern Timestep   	1:00 
@@ -391,7 +379,6 @@ Link 335 CLOSED IF Node 1 ABOVE 19.1
  35              	25.46           	10.52           
  40              	27.02           	9.81            
  50              	33.01           	3.01            
- 60              	23.90           	29.94           
  61              	23.71           	29.03           
  101             	13.81           	22.94           
  103             	12.96           	21.31           

@@ -4,22 +4,22 @@ using Revise
 using Plots
 
 
-net_name = "Net3" # "Threenode", "Net1", "Net3"
+net_name = "Net1" # "Threenode", "Net1", "Net3"
 network = load_network(net_name)
 
 
 ##### Optimization functions #####
 
 # optimization inputs
-sim_days = 7
-Δk = 60 * 60
-Δt = 60 * 60
+sim_days = 1
+Δk = 60 * 15
+Δt = 60 * 5
 kb = 0.5 # (1/day)
 kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
-source_cl = repeat([0.5], network.n_r)
+source_cl = repeat([0.25], network.n_r)
 b_loc, _ = get_booster_inputs(network, net_name, sim_days, Δk, Δt) # booster control locations
-x0 = 0.5 # initial conditions
+x0 = 0.25 # initial conditions
 x_bounds = (0.2, 4)
 u_bounds = (0, 5)
 
@@ -31,6 +31,6 @@ plot(c_tk[1, 1:end-1])
 plot(c_j[5, 1:end-1])
 plot(c_p[8, 1:end-1])
 plot(c_m[1, 1:end-1])
-plot(u[3, 1:end-1])
+plot(u[1, 1:end-1])
 
 

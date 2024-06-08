@@ -521,17 +521,17 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         
         ### GUROBI
         model = Model(Gurobi.Optimizer)
-        set_optimizer_attribute(model, "TimeLimit", 3600.0) # 1-hour time limit
+        set_optimizer_attribute(model, "TimeLimit", 21600) # 6-hour time limit
         # set_optimizer_attribute(model,"Method", 2)
         # set_optimizer_attribute(model,"Presolve", 0)
         # set_optimizer_attribute(model,"Crossover", 0)
-        # set_optimizer_attribute(model,"NumericFocus", 1)
+        # set_optimizer_attribute(model,"NumericFocus", 3)
         # set_optimizer_attribute(model,"NonConvex", 2)
         set_optimizer_attribute(model, "FeasibilityTol", 1e-4)
         set_optimizer_attribute(model, "IntFeasTol", 1e-4)
         set_optimizer_attribute(model, "OptimalityTol", 1e-4)
         # set_optimizer_attribute(model, "MIPFocus", 1)
-        set_optimizer_attribute(model, "MIPGap", 0.05)
+        # set_optimizer_attribute(model, "MIPGap", 0.05)
         # set_optimizer_attribute(model, "Threads", 4)
         if heuristic
             set_optimizer_attribute(model, "NoRelHeurTime", 60*15)
@@ -607,15 +607,15 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
 
 
-    ### fix variables
+    # ### fix variables
     for i ∈ setdiff(1:n_l, pump_idx)
         fix.(u_m[i, :], 0.0; force=true)
     end
-    for i ∈ pump_idx
-        fix.(z[i, :], 1.0; force=true)
-        fix.(θ⁻[i, :], 0.0, force=true)
-        fix.(q⁻[i, :], 0.0, force=true)
-    end
+    # for i ∈ pump_idx
+    #     fix.(z[i, :], 1.0; force=true)
+    #     fix.(θ⁻[i, :], 0.0, force=true)
+    #     fix.(q⁻[i, :], 0.0, force=true)
+    # end
 
 
 
@@ -660,8 +660,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     if solver ∈ ["Gurobi", "SCIP"]
         @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
-        # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
-        # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
+        @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
+        @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
     elseif solver == "Ipopt"
         # @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] == 0)
         @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 1e-5)
@@ -698,8 +698,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # else
     #     # insert code here...
     # end
-    @objective(model, Min, sum(q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
-    # @objective(model, Min, 0.0)
+    # @objective(model, Min, sum(q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
+    @objective(model, Min, 0.0)
 
 
 

@@ -575,9 +575,9 @@ function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_meth
 
     ylabel = "Chlorine [mg/L]"
     ymin = minimum(state_df[!, string.(node_to_plot)])
-    ymin = 0.5 * floor(ymin / 0.5)
+    ymin = 0.1 * floor(ymin / 0.1)
     ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
-    ymax = 0.5 * ceil(ymax / 0.5)
+    ymax = 0.1 * ceil(ymax / 0.1)
     xmax = 6 * ceil(maximum(state_df.timestamp) / 6)
     # xmax = round(maximum(state_df.timestamp), digits=0)
 

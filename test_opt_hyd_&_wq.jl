@@ -16,7 +16,7 @@ QA = true
 pmin = 5
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
 obj_type = "AZP"
-x_wq_bounds = (0.2, 4)
+x_wq_bounds = (0, 4)
 u_wq_bounds = (0, 5)
 x_wq_0 = 0.5 # initial water quality conditions
 J = nothing
@@ -28,6 +28,6 @@ cpu_time = @elapsed begin
     solver = "Gurobi" # "Gurobi", "Ipopt"
     heuristic = false
     integer = true
-    warm_start = false
+    warm_start = true
     opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
 end

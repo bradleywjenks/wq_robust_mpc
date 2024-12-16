@@ -6,7 +6,8 @@ using Plots
 
 # load network data
 net_name = "modena" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
-network = load_network(net_name)
+network = load_network(net_name);
+
 
 # create optimization parameters
 sim_days = 1
@@ -15,13 +16,12 @@ sim_days = 1
 QA = true
 pmin = 5
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
-obj_type = "AZP"
+obj_type = "cost" # "AZP"
 x_wq_bounds = (0.2, 4)
 u_wq_bounds = (0, 5)
 x_wq_0 = 0.5 # initial water quality conditions
 J = nothing
-opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin, QA=QA, x_wq_bounds=x_wq_bounds, u_wq_bounds=u_wq_bounds, obj_type=obj_type, x_wq_0=x_wq_0, J=J)
-
+opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin, QA=QA, x_wq_bounds=x_wq_bounds, u_wq_bounds=u_wq_bounds, obj_type=obj_type, x_wq_0=x_wq_0, J=J);
 
 # run optimization solver
 cpu_time = @elapsed begin

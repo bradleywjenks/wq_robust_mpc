@@ -485,6 +485,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     s_p = opt_params.s_p
     n_s = sum(s_p)
     kb = (opt_params.kb/3600/24) # units = 1/second
+    obj_type = opt_params.obj_type
 
     # simulation times
     T = opt_params.T
@@ -693,13 +694,34 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
 
     ### define objective functions
-    # if obj_type == "AZP"
-    #     # insert code here...
-    # else
-    #     # insert code here...
-    # end
+    if obj_type == "AZP"
+        # insert code here...
+    elseif obj_type == "cost"
+        #@objective(model, Min, )
+        #θ⁺[i, k] == -1 * pump_A[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000)^2 - pump_B[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000) - pump_C[findfirst(x -> x == i, pump_idx)]
+        #=ap_quad = net_data.ap_quad'; % Unpack the coefficients
+        bp_quad = net_data.bp_quad'; % of the quadratic pump
+        cp_quad = net_data.cp_quad'; % curves.
+
+        eff_coeffs = net_data.eff_coeffs; % Unpack the pump efficiency coefficients.
+
+        q_pumps = sim_q( net_data.FSpumpsIdx ); % Get the simulated pump flows. 
+
+        Dh_pumps = -(ap_quad.*q_pumps.^2 + bp_quad.*q_pumps + cp_quad); % Calculate the pump discharge heads.
+
+        efficiencies = eff_coeffs(:,1).*q_pumps.^3 + eff_coeffs(:,2).*q_pumps.^2 + eff_coeffs(:,3).*q_pumps; % Calculating pump efficiencies.
+        % efficiencies = 0.78; 
+
+        cost = dth * tou * (9.81*q_pumps.*Dh_pumps) ./ efficiencies ; % Calculate the cost vector 
+        cost(q_pumps==0) = 0;                                         % i.e., cost for each pump.
+
+        varargout(1) = {cost};
+        cost = sum(cost); % Calculate total cost.=#
+
+    else
+        @objective(model, Min, 0.0)
+    end
     # @objective(model, Min, sum(q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
-    @objective(model, Min, 0.0)
 
 
 

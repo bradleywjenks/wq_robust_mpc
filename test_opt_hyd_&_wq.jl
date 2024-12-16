@@ -5,7 +5,7 @@ using Plots
 
 
 # load network data
-net_name = "Net25" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
+net_name = "Net1" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name)
 
 # create optimization parameters
@@ -25,7 +25,7 @@ opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin,
 
 # run optimization solver
 cpu_time = @elapsed begin
-    solver = "Ipopt" # "Gurobi", "Ipopt"
+    solver = "Gurobi" # "Gurobi", "Ipopt"
     heuristic = false
     integer = true
     warm_start = true
@@ -34,8 +34,8 @@ end
 
 plot(opt_results.u_m[end, 1:end-1])
 
-plot(opt_results.q⁺[end, 1:end-1])
-plot!(opt_results.q⁻[end, 1:end-1])
+plot(opt_results.q⁺[2, 1:end-1])
+plot!(opt_results.q⁻[2, 1:end-1])
 
 plot(opt_results.h_tk[1, 1:end-1])
 

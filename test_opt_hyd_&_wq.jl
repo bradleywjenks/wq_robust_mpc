@@ -5,12 +5,12 @@ using Plots
 
 
 # load network data
-net_name = "Net3" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
+net_name = "Net25" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name)
 
 # create optimization parameters
 sim_days = 1
-Δk = 60 * 60
+Δk = 60 * 60 # Δk and Δt have to be equal
 Δt = 60 * 60
 QA = true
 pmin = 0
@@ -25,7 +25,7 @@ opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin,
 
 # run optimization solver
 cpu_time = @elapsed begin
-    solver = "Gurobi" # "Gurobi", "Ipopt"
+    solver = "Ipopt" # "Gurobi", "Ipopt"
     heuristic = false
     integer = true
     warm_start = true
@@ -34,9 +34,11 @@ end
 
 plot(opt_results.u_m[end, 1:end-1])
 
-plot(opt_results.q⁺[1, 1:end-1])
-plot!(opt_results.q⁻[1, 1:end-1])
+plot(opt_results.q⁺[end, 1:end-1])
+plot!(opt_results.q⁻[end, 1:end-1])
 
 plot(opt_results.h_tk[1, 1:end-1])
 
 plot(opt_results.h_j[2, 1:end-1])
+
+opt_results.u_m

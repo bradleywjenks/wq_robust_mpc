@@ -359,7 +359,7 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     L_p = network.L[pipe_idx]
     D_p = network.D[pipe_idx]
 
-    # compute network hydraulics
+    # compute network hydraulics (could be replaced with null space solver)
     sim_type = "hydraulic"
     sim_results = epanet_solver(network, sim_type; sim_days=sim_days, Δk=Δk)
     k_set = sim_results.timestamp .* 3600
@@ -432,7 +432,7 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     if disc_method == "explicit-central" || disc_method == "explicit-upwind"
         for k ∈ 1:n_t
             if any(Δt .>= Δx_p ./ vel_p[:, k])
-                @error "CFL condition not satisfied. Please input a smaller Δt."
+                @error "CFL condition not satisfied. Input a smaller Δt."
                 return s_p
             end
         end

@@ -132,7 +132,7 @@ Function for making optimization parameters (hydraulic and water quality), which
     - optimization objective
 
 """
-function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin::Int64=15, pmax::Int64=200, Qmax_mul=10000, Qmin_mul=-10000, x_wq_bounds=(0.5, 3), u_wq_bounds=(0, 5), QA=false, quadratic_approx="relative", J=nothing, kb=0.5, kw=0, x_wq_0=0, obj_type="AZP")
+function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin::Int64=15, pmax::Int64=200, Qmax_mul=1000, Qmin_mul=-1000, x_wq_bounds=(0.5, 3), u_wq_bounds=(0, 5), QA=false, quadratic_approx="relative", J=nothing, kb=0.5, kw=0, x_wq_0=0, obj_type="AZP")
 
     n_t = Int(get_hydraulic_time_steps(network, sim_days, Δk))
     sim_type = "hydraulic"
@@ -149,8 +149,11 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
     tk_init = network.tank_init .+ network.elev[network.tank_idx]
 
     # q bounds across links
-    Qmin = Qmin_mul * ones(network.n_l, n_t)
-    Qmax = Qmax_mul * ones(network.n_l, n_t)
+    v_init = Matrix(getfield(sim_results, :velocity))'
+    v_max = vmax(network, v_init[2:end, :])
+    link_area = (pi .* network.D .^ 2) ./ 4
+    Qmin = -1 * v_max .* link_area .* 1000
+    Qmax = v_max .* link_area .* 1000
 
     # u bounds at booster locations
     b_loc, _ = get_booster_inputs(network, network.name, sim_days, Δk, Δt) # booster control locations
@@ -169,15 +172,13 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
     Xmax_tk = x_wq_bounds[2] * ones(network.n_tk)
 
     # frictional loss model
-    v_init = Matrix(getfield(sim_results, :velocity))'
-    v_max = vmax(network, v_init[2:end, :])
     if QA
         a, b = quadratic_app(network, v_max, quadratic_approx)
         θmin = (a .* abs.(Qmin) .^ 2 .+ b .* abs.(Qmin)) .* -1
         θmax = a .* Qmax .^ 2 .+ b .* Qmax
     else
         a, b = nothing, nothing
-        θmin = (a .* abs.(Qmin) .^ 2 .+ b .* abs.(Qmin)) .* -1
+        θmin .= (network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)) .* -1
         θmax .= network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)
     end
 
@@ -219,7 +220,6 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
         k_t[t] = searchsortedfirst(k_set, t*Δt) - 1
     end
     k_t = Int.(k_t)
-
 
 
     return OptParams(
@@ -266,7 +266,7 @@ end
 Determine the maximum v for a network
     vmul = multipliers to use
 """
-function vmax(network, v_init; vmul::Vector{<:Real}=[1, 2, 3, 4, 5, 6])
+function vmax(network, v_init; vmul::Vector{<:Real}=[1.5, 2, 3, 4, 5, 6])
     v_init = abs.(v_init)
     v_max = zeros(size(v_init, 1), size(v_init, 2))
     v_max[v_init.<0.5] .= vmul[1]
@@ -358,7 +358,7 @@ end
 
 
 """
-Function for getting starting point values for the optimal control problem
+Function for getting starting point values for optimal control problem
 """
 function get_starting_point(network, opt_params)
 
@@ -374,7 +374,16 @@ function get_starting_point(network, opt_params)
     @assert(q_0 == q⁺_0 - q⁻_0)
     z_0 = zeros(size(q_0)); z_0[q_0 .< 0] .= 0; z_0[q_0 .> 0] .= 1
 
-    # initial head loss values
+    # initial pump slack variables
+    u_m_0 = zeros(network.n_m, size(q_0, 2))
+    A = hcat(network.A12, network.A10_res, network.A10_tank)
+    for i ∈ network.pump_idx
+        node_start = findfirst(x -> x == -1, A[i, :])
+        node_end = findfirst(x -> x == 1, A[i, :])
+        u_m_0[findfirst(x -> x == i, network.pump_idx), :] = h[node_end, :] - h[node_start, :]
+    end
+
+    # initial head loss/gain values
     a, b, = opt_params.a, opt_params.b
     r, nexp = network.r, network.nexp
     θ⁺_0 = zeros(size(q_0))
@@ -392,7 +401,7 @@ function get_starting_point(network, opt_params)
         end
         # head gain across pump links
         for i ∈ network.pump_idx
-            θ⁺_0[i, k] == -1 * network.pump_A[findfirst(x -> x == i, network.pump_idx)] * (q⁺_0[i, k] / 1000)^2 - network.pump_B[findfirst(x -> x == i, network.pump_idx)] * (q⁺_0[i, k] / 1000) - network.pump_C[findfirst(x -> x == i, network.pump_idx)]
+            θ⁺_0[i, k] == -1 .* (network.pump_A[findfirst(x -> x == i, network.pump_idx)] * (q⁺_0[i, k] / 1000)^2 + network.pump_B[findfirst(x -> x == i, network.pump_idx)] * (q⁺_0[i, k] / 1000) + network.pump_C[findfirst(x -> x == i, network.pump_idx)]) + u_m_0[findfirst(x -> x == i, network.pump_idx), k]
         end
     end
     θ_0 = θ⁺_0 - θ⁻_0
@@ -400,10 +409,8 @@ function get_starting_point(network, opt_params)
 
     # initial head values
     h_j_0 = h[network.junction_idx, :]
-    h_tk_0 = hcat(h[network.tank_idx, :], h[network.tank_idx, 1])
+    h_tk_0 = opt_params.tk_init
 
-    # initial pump slack variables
-    u_m_0 = zeros(size(q_0))
 
     return h_j_0, h_tk_0, q_0, q⁺_0, q⁻_0, z_0, θ_0, θ⁺_0, θ⁻_0, u_m_0
 end
@@ -456,6 +463,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     pump_A = network.pump_A
     pump_B = network.pump_B
     pump_C = network.pump_C
+    core_links = network.core_links
 
     # unload optimization parameters
     disc_method = opt_params.disc_method
@@ -531,7 +539,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         set_optimizer_attribute(model, "IntFeasTol", 1e-4)
         set_optimizer_attribute(model, "OptimalityTol", 1e-4)
         # set_optimizer_attribute(model, "MIPFocus", 1)
-        # set_optimizer_attribute(model, "MIPGap", 0.05)
+        set_optimizer_attribute(model, "MIPGap", 0.05)
         # set_optimizer_attribute(model, "Threads", 4)
         if heuristic
             set_optimizer_attribute(model, "NoRelHeurTime", 60*15)
@@ -552,8 +560,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         set_optimizer_attribute(model, "mu_strategy", "adaptive")
         set_optimizer_attribute(model, "mu_oracle", "quality-function")
         set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
-        set_optimizer_attribute(model, "tol", 1e-4)
-        set_optimizer_attribute(model, "constr_viol_tol", 1e-4)
+        # set_optimizer_attribute(model, "tol", 1e-4)
+        # set_optimizer_attribute(model, "constr_viol_tol", 1e-4)
         # set_optimizer_attribute(model, "fast_step_computation", "yes")
         set_optimizer_attribute(model, "print_level", 5)
 
@@ -587,15 +595,15 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     @variable(model, 0 ≤ q⁻[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ s[i=1:n_l, k=1:n_t])
     @variable(model, θmin[i, k] ≤ θ[i=1:n_l, k=1:n_t] ≤ θmax[i, k])
-    @variable(model, θmin[i, k] ≤ θ⁺[i=1:n_l, k=1:n_t] ≤ θmax[i, k]) # add lower and upper bounds to θ⁺ to allow for pump operations   
+    @variable(model, θmin[i, k] ≤ θ⁺[i=1:n_l, k=1:n_t] ≤ θmax[i, k])  
     @variable(model, 0 ≤ θ⁻[i=1:n_l, k=1:n_t])
-    @variable(model, -1000 ≤ u_m[i=1:n_l, k=1:n_t] ≤ 1000)
+    @variable(model, u_m[i=1:n_m, k=1:n_t])
 
     if solver ∈ ["Gurobi", "SCIP"]  && integer
         @variable(model, z[i=1:n_l, k=1:n_t], binary=true)
     elseif solver ∈ ["Gurobi", "SCIP"] && !integer
         @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
-        @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
+        # @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
     else
         @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
         # @constraint(model, flow_complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) ≤ 1e-4)
@@ -604,20 +612,6 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     # water quality
     # TO BE COMPLETED!!!
-
-
-
-    ### fix variables
-    for i ∈ setdiff(1:n_l, pump_idx)
-        fix.(u_m[i, :], 0.0; force=true)
-    end
-    for i ∈ pump_idx
-        fix.(z[i, :], 1.0; force=true)
-        fix.(θ⁻[i, :], 0.0, force=true)
-        fix.(q⁻[i, :], 0.0, force=true)
-    end
-
-    # fix variables from forest-core decomposition and bound tightning steps (TBC)
 
 
 
@@ -630,9 +624,9 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     # engergy conservation
     if !isempty(tank_idx)
-        @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], θ[i, k] + u_m[i, k] + sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) + sum(A10_tank[i, j]*h_tk[j, k] for j ∈ tank_map[i]) == 0.0)
+        @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], θ[i, k] + sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) + sum(A10_tank[i, j]*h_tk[j, k] for j ∈ tank_map[i]) == 0.0)
     else
-        @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], θ[i, k] + u_m[i, k] + sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) == 0.0)
+        @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], θ[i, k] + sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) == 0.0)
     end
 
     # head loss/gain model constraints
@@ -649,7 +643,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         end
         # head gain across pump links
         for i ∈ pump_idx
-            @constraint(model, θ⁺[i, k] == -1 * pump_A[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000)^2 - pump_B[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000) - pump_C[findfirst(x -> x == i, pump_idx)])
+            @constraint(model, θ⁺[i, k] == -1 .* (pump_A[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000)^2 + pump_B[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000) + pump_C[findfirst(x -> x == i, pump_idx)]) + u_m[findfirst(x -> x == i, pump_idx), k])
         end
     end
         
@@ -659,15 +653,19 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     @constraint(model, flow_value_abs[i=1:n_l, k=1:n_t], q⁺[i, k] + q⁻[i, k] == s[i, k])
     @constraint(model, head_loss_value[i=1:n_l, k=1:n_t], θ⁺[i, k] - θ⁻[i, k] == θ[i, k])
 
+
+    # complementarity constraints for flow direction
     if solver ∈ ["Gurobi", "SCIP"]
-        # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
-        # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
-        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
+        # @constraint(model, flow_direction_pos[i=core_links, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
+        # @constraint(model, flow_direction_neg[i=core_links, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
+        # @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
+        @constraint(model, flow_direction[i=core_links, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
         # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
         # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
+        # @constraint(model, head_loss_direction[i=1:n_l, k=1:n_t], [ θ⁻[i, k], θ⁺[i, k]] in SOS1())
     elseif solver == "Ipopt"
-        # @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] == 0)
-        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 1e-6)
+        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
+        @constraint(model, flow_direction[i=core_links, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
         # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
     end
@@ -675,19 +673,18 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # complementarity constraints for pump status
     if !isempty(pump_idx)
         if solver == "Gurobi"
-            @constraint(model, pump_status[i=1:n_l, k=1:n_t], [u_m[i, k], q⁺[i, k]] in SOS1())
-            # @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≤ 1e-6)
-            # @constraint(model, pump_status_1[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≤ 1e-6)
-            # @constraint(model, pump_status_2[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≥ -1e-6)
-            # NB: can be replaced with a big-M formulation and additional binary variables (which is what Gurobi does... but we don't need binary variables as an output, so let Gurobi handle this internally)
+            @constraint(model, pump_status[i=pump_idx, k=1:n_t], [u_m[findfirst(x -> x == i, pump_idx), k], q⁺[i, k]] in SOS1())
+            # @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q⁺[i, k] ≤ 1e-6)
+            # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
+            # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
         elseif solver ∈ ["Ipopt", "SCIP"]
-            # @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q⁺[i, k] == 0)
-            @constraint(model, pump_status_1[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≤ 1e-6)
-            @constraint(model, pump_status_2[i=1:n_l, k=1:n_t],  u_m[i, k] * q[i, k] ≥ -1e-6)
+            @constraint(model, pump_status[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] == 0)
+            # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
+            # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
         end
     end
 
-    # tank_balance
+    # tank balance
     if !isempty(tank_idx)
         @constraint(model, tank_balance[i=1:n_tk, k=1:n_t], h_tk[i, k+1] == h_tk[i, k] + sum(A10_tank[j, i]*(q[j, k] / 1000) for j ∈ link_tank_map[i]) * (Δk / tk_area[i]))
     end
@@ -705,8 +702,12 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # else
     #     # insert code here...
     # end
-    # @objective(model, Min, sum(q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
-    @objective(model, Min, 0.0)
+    if !isempty(pump_idx)
+        @objective(model, Min, sum(q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
+    else
+        @objective(model, Min, 0.0)
+    end
+
 
 
 

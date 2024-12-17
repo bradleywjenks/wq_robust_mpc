@@ -277,6 +277,60 @@ end
 
 
 
+"""
+Function to plot network edge values
+"""
+function plot_network_edges(network; edge_values=nothing, edge_key=nothing, interactive=false, title=nothing, clims=nothing, fig_size=(500, 400))
+    
+
+    # check inputted edge values
+    if edge_key == "network_decomp"
+        # unload decomp data
+        link = zeros(network.n_l)
+        for i ∈ collect(1:network.n_l)
+            if i ∈ edge_values.P
+                link[i] = 1
+            elseif i ∈ edge_values.S
+                link[i] = 2
+            elseif i ∈ edge_values.F
+                link[i] = 3
+            end
+        end
+        # assign colour palette
+        if all(x -> x ∈ link, [1, 2, 3])
+            edge_colour = [:navy, :deepskyblue, :gold]
+        elseif all(x -> x ∈ link, [1, 2])
+            edge_colour = [:navy, :deepskyblue]
+        elseif all(x -> x ∈ link, [1, 3])
+            edge_colour = [:navy, :gold]
+        end
+    end
+
+    g = network_graph(network)
+    pos_x, pos_y = get_graphing_x_y(network)
+    layout = Point.(zip(pos_x, pos_y))
+
+    f = Figure(size=fig_size)
+    ax = Axis(f[1, 1])
+
+    for idx in 1:network.n_l
+        src, dst = pipe_nodes(network, idx)
+        if edge_key == "network_decomp"
+            edge_value = Int(link[idx]) 
+            line_width = 1.5
+            lines!(ax, [pos_x[src], pos_x[dst]], [pos_y[src], pos_y[dst]], linewidth=line_width, color=edge_colour[edge_value], transparency=true)
+        end
+    end
+
+    hidedecorations!(ax); hidespines!(ax); ax.aspect = DataAspect(); 
+    
+    
+    return f
+end
+
+
+
+
 
 
 

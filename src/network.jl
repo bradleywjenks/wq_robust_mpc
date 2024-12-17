@@ -62,6 +62,7 @@ const NETWORK_PATH = pwd() * "/networks/"
     A = hcat(A12, A10_res, A10_tank)
     B_prv::Vector{Int64}
     B_pump::Vector{Int64}
+    core_links::Vector{Int64}
     @assert simtype == "H-W" "simtype must be H-W, it is $simtype"
 end
 
@@ -112,7 +113,8 @@ Base.copy(n::Network) = Network(
     node_names=deepcopy(n.node_names),
     A21=deepcopy(n.A21),
     B_prv=deepcopy(n.B_prv),
-    B_pump=deepcopy(n.B_pump))
+    B_pump=deepcopy(n.B_pump),
+    core_links=deepcopy(n.core_links))
 
 
 
@@ -222,7 +224,217 @@ function load_network(net_name::String, network_dir=NETWORK_PATH * net_name; dbv
     end
     r = ((1e-3) .^ nexp) .* r # conversion to flows in l/s
 
-    network = Network(name=net_name, dir=network_dir, n_l=n_l, n_p=n_p, n_v=n_v, n_m=n_m, n_n=n_n, n_j=n_j, n_r=n_r, n_tk=n_tk, n_t=n_t, A10_res=A10_res, A10_tank=A10_tank, A12=A12, B_prv=B_prv, B_pump=B_pump, d=d, h0=h0, L=L, C=C, D=D, status=status, nexp=nexp, tank_init=tank_init, tank_min=tank_min, tank_max=tank_max, tank_area=tank_area, pump_A=pump_A, pump_B=pump_B, pump_C=pump_C, r=r, elev=elev, simtype=simtype, X_coord=XCoord, Y_coord=YCoord, link_name_to_idx=link_name_to_idx, node_name_to_idx=node_name_to_idx, link_names=link_names, node_names=node_names, pipe_idx=pipe_idx, valve_idx=valve_idx, pump_idx=pump_idx, junction_idx=junction_idx, tank_idx=tank_idx, reservoir_idx=reservoir_idx, prv_names=prv_names);
+    # find core links
+    network_decomp = forest_core_decomp(n_l, n_j, n_t, d, A12, A10_res, A10_tank)
+
+    network = Network(name=net_name, dir=network_dir, n_l=n_l, n_p=n_p, n_v=n_v, n_m=n_m, n_n=n_n, n_j=n_j, n_r=n_r, n_tk=n_tk, n_t=n_t, A10_res=A10_res, A10_tank=A10_tank, A12=A12, B_prv=B_prv, B_pump=B_pump, d=d, h0=h0, L=L, C=C, D=D, status=status, nexp=nexp, tank_init=tank_init, tank_min=tank_min, tank_max=tank_max, tank_area=tank_area, pump_A=pump_A, pump_B=pump_B, pump_C=pump_C, r=r, elev=elev, simtype=simtype, X_coord=XCoord, Y_coord=YCoord, link_name_to_idx=link_name_to_idx, node_name_to_idx=node_name_to_idx, link_names=link_names, node_names=node_names, pipe_idx=pipe_idx, valve_idx=valve_idx, pump_idx=pump_idx, junction_idx=junction_idx, tank_idx=tank_idx, reservoir_idx=reservoir_idx, prv_names=prv_names, core_links=network_decomp.P);
 
     return network
+end
+
+
+
+
+""" 
+Forest-core decomposition algorithm.
+"""
+function forest_core_decomp(n_l, n_j, n_t, d, A12, A10_res, A10_tank)
+
+    # unload network variables
+    np = n_l
+    nj = n_j
+    nt = n_t
+    A10 = hcat(A10_res, A10_tank)
+
+    P = collect(1:np) # original pipes indices
+    V = collect(1:nj) # original junction indices
+    S = [] # eliminated pipes
+    LOOP = [] # eliminated pipes involved in trivial loops
+    Y = [] # eliminated nodes
+    F = [] # eliminated forest pipes
+    T = [] # eliminated forest nodes
+    QSol = zeros(np, nt)
+    dtilde = d
+    E = sparse(Matrix{Float64}(I, np, np))
+    Econst = zeros(np, nt)
+    
+    A = hcat(A12[P, V], A10[P, :])
+
+    ### Find forest links ###
+    leaf_nodes = [node[2] for node in findall(x -> x == 1, sum(abs.(A12), dims=1))]
+
+    while !isempty(leaf_nodes)
+        j = leaf_nodes[1]
+        k = nothing
+        while sum(abs.(A12[:, j])) == 1
+            k = findall(x -> x != 0, A12[:, j])[1]
+            ids = findall(x -> x != 0, A12[k, :])
+            if length(ids) == 1
+                # leaf node connected to source
+                QSol[k, :] = A12[k, j] .* dtilde[j, :]
+
+                push!(T, j) # store eliminated leaf node j
+                push!(F, k) # store eliminated pipe k connecting leaf node j
+                A12[:, j] .= 0
+                A12[k, :] .= 0
+            else
+                m = filter(x -> x != j, ids)[1]
+                # aggregate demand
+                QSol[k, :] = A12[k, j] .* dtilde[j, :] # assigns flow in pipe k equal to demand at leaf node j
+                dtilde[m, :] = dtilde[m, :] + dtilde[j, :] # adds flow from leaf node to upstream node m (where j can now be cut and m is a now a leaf node)
+
+                push!(T, j) # store eliminated leaf node j
+                push!(F, k) # store eliminated pipe k connecting leaf node j
+                A12[:, j] .= 0
+                A12[k, :] .= 0
+
+                j = m # move to next leaf node in series
+            end
+
+        end
+
+        leaf_nodes = [node[2] for node in findall(x -> x == 1, sum(abs.(A12), dims=1))]
+
+    end
+
+    F = sort(F)
+    T = sort(T)
+    deleteat!(P, F)
+    deleteat!(V, T)
+
+
+    ### Find and eliminate trivial loops ###
+    # visited = []
+    # con_nodes = ∩([node[2] for node in findall(x -> x == 2, sum(abs.(A), dims=1))], findall(x -> x == 0, maximum(dtilde[V, :], dims=2)))
+    # LoopBool = 0
+    # while !isempty(con_nodes)
+    #     j = con_nodes[1]
+    #     boolean = 0
+    #     temp = findall(x -> x != 0, A[:, j])
+    #     l0 = temp[1]
+    #     i0= findall(x -> x != 0, A[l0, :])
+    #     i0 = filter(x -> x != j, i0)[1][2] 
+    #     lN = temp[2]
+    #     iNp1= findall(x -> x != 0, A[lN, :])
+    #     iNp1 = filter(x -> x != j, lN)[1] 
+    #     ij = j
+    #     Ij = []
+    #     while any(x -> x == i0, con_nodes)
+    #         temp = findall(x -> x != 0, A[:, i0])
+    #         lj = hcat(l0, lj)
+    #         I0 = filter(x -> x != l0, temp)[1][2] 
+    #         ij = hcat(i0, ij)
+    #         i0 = findall(x -> x != 0, A[l0, :])
+    #         i0 = filter(x -> x != i0 || x != ij, i0)[1][2] 
+    #     end
+    #     while any(x -> x == iNp1, con_nodes)
+    #         temp = findall(x -> x != 0, A[:, iNp1])
+    #         lj = hcat(lj, lN)
+    #         lN = filter(x -> x != lN, temp)[1] 
+    #         ij = hcat(ij, iNp1)
+    #         iNp1= findall(x -> x != 0, A[lN, :])
+    #         iNp1 = filter(x -> x != iNp1 || x != ij, iNp1)[1][2]
+    #     end
+    #     if i0 <= length(V) && iNp1 <= length(V)
+    #         if V[i0] == V[iNp1]
+    #             LoopBool = 1
+    #             bool = 1
+    #             LinkList = hcat(l0, lj, lN)
+    #             F = hcat(F, P[l0], P[lj], P[lN])
+    #             QSol(hcat(P[l0], P[lj], P[lN]), :) .= 0
+    #             temp = findall(x -> x != 0, A[:, i0])
+    #             findall(x -> x == temp, hcat(l0, lj, iN))
+    #             otherlinks = filter(x -> x != (findall(x -> x == temp, hcat(l0, lj, iN))), temp)
+    #             if length(otherlinks) == 1
+    #                 # now this is a branch
+    #                 k = otherlinks
+    #                 mtemp = findall(x -> x != 0, A[k, :])
+    #                 m = filter(x -> x != i0, mtemp)[1][2]
+    #                 if m <= length(V)
+    #                     QSol[P[k], :] = A[k, i0] .* dtilde[V[i0], :]
+    #                     dtilde[V[m], :] = dtilde[V[m], :] + dtilde[V[i0], :]
+    #                 else
+    #                     QSol[P[k], :] = A[k, i0] .* dtilde[V[i0], :]
+    #                 end
+                    
+    #                 push!(T, hcat(V[i0], V[ij]))
+    #                 push!(F, P[k])
+    #                 deleteat!(V, hcat(ij, i0))
+    #                 deleteat!(P, hcat(l0, lj, lN, k))
+    #                 A_temp = A[P, V]
+                    
+    #             elseif length(otherlinks) > 1
+    #                 # do nothing
+    #                 push!(T, V[ij])
+    #                 deleteat!(V, ij)
+    #                 deleteat!(P, hcat(l0, lj, lN))
+    #                 A_temp = A[P, V]
+    #             end
+    #         end
+    #     end
+    #     if bool
+    #         con_nodes = ∩([node[2] for node in findall(x -> x == 2, sum(abs.(A_temp), dims=1))], findall(x -> x == 0, maximum(dtilde[V, :], dims=2)))
+    #         con_nodes = setdiff(con_nodes, findall(x -> x == V, visted))
+    #     else
+    #         visited = hcat(visited, V[ij])
+    #         con_nodes = ∩([node[2] for node in findall(x -> x == 2, sum(abs.(A_temp), dims=1))], findall(x -> x == 0, maximum(dtilde[V, :], dims=2)))
+    #         con_nodes = setdiff(con_nodes, findall(x -> x == V, visted))
+    #     end
+    # end
+
+
+    ### Find core-series links ###
+    con_nodes = V[[node[2] for node in findall(x -> x == 2, sum(abs.(A[P, V]), dims=1))]]
+
+    for nodeIdx in con_nodes
+        linkSeq = findall(x -> x != 0, A[P, nodeIdx])
+        if any(x -> x == P[linkSeq[1]], S) && any(x -> x == P[linkSeq[2]], S)
+            # do nothing
+        elseif !any(x -> x == P[linkSeq[1]], S) && any(x -> x == P[linkSeq[2]], S)
+            l = linkSeq[1]
+            m = linkSeq[2]
+            um = spzeros(np)
+            um[P[m]] = 1
+            E[P[l], :] = -A12[P[l], nodeIdx] * A12[P[m], nodeIdx] * um
+            Econst[P[l], :] = A12[P[l], nodeIdx] * dtilde[nodeIdx, :]
+            push!(S, P[l])
+        elseif !any(x -> x == P[linkSeq[1]], S) && !any(x -> x == P[linkSeq[2]], S)
+            l = linkSeq[1]
+            m = linkSeq[2]
+            um = spzeros(np)
+            um[P[m]] = 1
+            E[P[l], :] = -A12[P[l], nodeIdx] * A12[P[m], nodeIdx] * um
+            Econst[P[l], :] = A12[P[l], nodeIdx] * dtilde[nodeIdx, :]
+            push!(S, P[l])
+        elseif any(x -> x == P[linkSeq[1]], S) && !any(x -> x == P[linkSeq[2]], S)
+            l = linkSeq[2]
+            m = linkSeq[1]
+            um = spzeros(np)
+            um[P[m]] = 1
+            E[P[l], :] = -A12[P[l], nodeIdx] * A12[P[m], nodeIdx] * um
+            Econst[P[l], :] = A12[P[l], nodeIdx] * dtilde[nodeIdx, :]
+            push!(S, P[l])
+        end
+        
+    end
+    
+    J = S[vec(maximum(abs.(E[S, S]), dims=1) .> 0)]
+    while !isempty(J)
+        jj = 1
+        ej = E[J[jj], :]
+        ji = findall(x -> x != 0, E[:, J[jj]])[1]
+        uj = zeros(size(E, 2))
+        uj[J[jj]] = 1
+        Econst[ji, :] = Econst[ji, :] + E[ji, J[jj]] * Econst[J[jj], :]
+        E[ji, :] = E[ji, :] - E[ji, J[jj]] * uj + E[ji, J[jj]] * ej
+        J = S[vec(maximum(abs.(E[S, S]), dims=1) .> 0)]
+    end
+
+    P = setdiff(P, S)
+    P = sort(P)
+    S = sort(S)
+    network_decomp = (V=V, P=P, E=E, e=Econst, QF=QSol[F, :], F=F, S=S)
+
+    return network_decomp
+
 end

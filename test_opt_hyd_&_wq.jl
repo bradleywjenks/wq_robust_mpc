@@ -3,7 +3,6 @@ using wq_robust_mpc
 using Revise
 using Plots
 
-
 # load network data
 net_name = "Net1" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name)
@@ -28,17 +27,15 @@ cpu_time = @elapsed begin
     solver = "Gurobi" # "Gurobi", "Ipopt"
     heuristic = false
     integer = true
-    warm_start = true
+    warm_start = false
     opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
 end
 
 plot(opt_results.u_m[end, 1:end-1])
 
-plot(opt_results.q⁺[2, 1:end-1])
-plot!(opt_results.q⁻[2, 1:end-1])
+plot(opt_results.q⁺[7, 1:end-1])
+plot!(opt_results.q⁻[7, 1:end-1])
 
 plot(opt_results.h_tk[1, 1:end-1])
 
 plot(opt_results.h_j[2, 1:end-1])
-
-opt_results.u_m

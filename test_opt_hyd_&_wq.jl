@@ -12,7 +12,7 @@ sim_days = 1
 Δk = 60 * 60 # Δk and Δt have to be equal
 Δt = 60 * 60
 QA = true
-pmin = 0
+pmin = 10
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
 obj_type = "AZP"
 x_wq_bounds = (0, 4)
@@ -33,8 +33,8 @@ end
 
 plot(opt_results.u_m[end, 1:end-1])
 
-plot(opt_results.q⁺[7, 1:end-1])
-plot!(opt_results.q⁻[7, 1:end-1])
+plot(opt_results.q⁺[1, 1:end-1])
+plot!(opt_results.q⁻[1, 1:end-1])
 
 plot(opt_results.h_tk[1, 1:end-1])
 

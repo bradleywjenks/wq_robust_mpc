@@ -194,8 +194,8 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
         θmax .= network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)
     end
 
-    θmin[network.pump_idx, :] .= network.pump_C .* -1.05
-    θmax[network.pump_idx, :] .= 1000
+    θmin[network.pump_idx, :] .= network.pump_C .* -1.5
+    θmax[network.pump_idx, :] .= network.pump_C .* 1.5
 
     # set discretization parameters and variables
     s_p = []
@@ -606,7 +606,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     @variable(model, 0 ≤ q⁺[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ q⁻[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ s[i=1:n_l, k=1:n_t])
-    @variable(model, θ[i=1:n_l, k=1:n_t])
+    @variable(model, θmin[i, k] ≤ θ[i=1:n_l, k=1:n_t] ≤ θmax[i, k])
     @variable(model, θ⁺[i=1:n_l, k=1:n_t])  
     @variable(model, θ⁻[i=1:n_l, k=1:n_t])
     @variable(model, u_m[i=1:n_m, k=1:n_t])
@@ -625,7 +625,11 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # water quality
     # TO BE COMPLETED!!!
 
-
+    # ### fix variables
+    for i ∈ pump_idx
+        fix.(θ⁻[i, :], 0.0, force=true)
+        fix.(q⁻[i, :], 0.0, force=true)
+    end
 
     ### define constraints
 

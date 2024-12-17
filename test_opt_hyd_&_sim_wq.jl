@@ -18,7 +18,7 @@ sim_days = 1
 QA = true
 pmin = 5
 disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
-obj_type = " " # "cost" # "AZP"
+obj_type = "cost" # "cost" # "AZP"
 x_wq_bounds = (0.2, 4)
 u_wq_bounds = (0, 5)
 x_wq_0 = 0.5 # initial water quality conditions
@@ -35,7 +35,7 @@ cpu_time = @elapsed begin
     opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
 end
 
-
+#=
 ##### store optimal schedule/control settings and use for wq simulation #####
 ##### wq simulation #####
 
@@ -77,4 +77,4 @@ state_df = getfield(sim_results, Symbol(state_to_plot))
 time_to_plot = 100
 plot_network_sim(network, state_df, state_to_plot; time_to_plot=time_to_plot+1, fig_size=(600, 450), pumps=true, save_fig=true)  # time offset since simulation starts at t = 0
 elements_to_plot = network.node_names[end] # e.g., network.node_names[1:4] or network.link_names[1:4]
-plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)
+plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true) =#

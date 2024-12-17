@@ -456,6 +456,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     pump_A = network.pump_A
     pump_B = network.pump_B
     pump_C = network.pump_C
+    pump_η = 0.78 # fixed pump efficiency
 
     # unload optimization parameters
     disc_method = opt_params.disc_method
@@ -494,6 +495,9 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     Δt = opt_params.Δt
     Δk = opt_params.Δk
 
+    # electricity costs
+    c_elec = ones(n_t,1)
+
     # modify operational data times
     if size(h0, 2) != n_t
         mult = n_t / size(h0, 2)
@@ -522,7 +526,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         
         ### GUROBI
         model = Model(Gurobi.Optimizer)
-        set_optimizer_attribute(model, "TimeLimit", 21600) # 6-hour time limit
+        set_optimizer_attribute(model, "TimeLimit", 60) # 21600) # 6-hour time limit
         # set_optimizer_attribute(model,"Method", 2)
         # set_optimizer_attribute(model,"Presolve", 0)
         # set_optimizer_attribute(model,"Crossover", 0)
@@ -580,7 +584,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     ### define variables
 
-    # hydrualic
+    # hydraulic
     @variable(model, Hmin_j[i, k] ≤ h_j[i=1:n_j, k=1:n_t] ≤ Hmax_j[i, k])
     @variable(model, Hmin_tk[i, k] ≤ h_tk[i=1:n_tk, k=1:n_t+1] ≤ Hmax_tk[i, k])
     @variable(model, Qmin[i, k] ≤ q[i=1:n_l, k=1:n_t] ≤ Qmax[i, k])
@@ -704,27 +708,18 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     if obj_type == "AZP"
         # insert code here...
     elseif obj_type == "cost"
-        #@objective(model, Min, )
-        #θ⁺[i, k] == -1 * pump_A[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000)^2 - pump_B[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000) - pump_C[findfirst(x -> x == i, pump_idx)]
-        #=ap_quad = net_data.ap_quad'; % Unpack the coefficients
-        bp_quad = net_data.bp_quad'; % of the quadratic pump
-        cp_quad = net_data.cp_quad'; % curves.
-
-        eff_coeffs = net_data.eff_coeffs; % Unpack the pump efficiency coefficients.
-
-        q_pumps = sim_q( net_data.FSpumpsIdx ); % Get the simulated pump flows. 
-
+        cost = 0
+        for k ∈ 1:n_t
+            for i ∈ pump_idx
+                cost = cost - Δk*c_elec[k]*9.81*(q⁺[i, k]/1000)*(pump_A[findfirst(x -> x == i, pump_idx)]*(q⁺[i, k]/1000)^2 + pump_B[findfirst(x -> x == i, pump_idx)]*(q⁺[i, k]/1000) + pump_C[findfirst(x -> x == i, pump_idx)])/pump_η
+            end
+        end
+        @objective(model, Min, cost)
+        #= from the Matlab code:
         Dh_pumps = -(ap_quad.*q_pumps.^2 + bp_quad.*q_pumps + cp_quad); % Calculate the pump discharge heads.
-
-        efficiencies = eff_coeffs(:,1).*q_pumps.^3 + eff_coeffs(:,2).*q_pumps.^2 + eff_coeffs(:,3).*q_pumps; % Calculating pump efficiencies.
-        % efficiencies = 0.78; 
-
-        cost = dth * tou * (9.81*q_pumps.*Dh_pumps) ./ efficiencies ; % Calculate the cost vector 
-        cost(q_pumps==0) = 0;                                         % i.e., cost for each pump.
-
-        varargout(1) = {cost};
+        efficiencies = 0.78; 
+        cost = dth * tou * (9.81*q_pumps.*Dh_pumps) ./ efficiencies; 
         cost = sum(cost); % Calculate total cost.=#
-
     else
         @objective(model, Min, 0.0)
     end
@@ -755,10 +750,10 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     ### solve optimization problem
     optimize!(model)
-
+    print(model)
     solution_summary(model)
     term_status = termination_status(model)
-    accepted_status = [LOCALLY_SOLVED; ALMOST_LOCALLY_SOLVED; OPTIMAL; ALMOST_OPTIMAL]
+    accepted_status = [LOCALLY_SOLVED; ALMOST_LOCALLY_SOLVED; OPTIMAL; ALMOST_OPTIMAL; TIME_LIMIT]
     
     if term_status ∉ accepted_status
 
@@ -779,6 +774,9 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         )
     end
 
+    if term_status == TIME_LIMIT
+        @error "Maximum time limit reached. Returning best incumbent."
+    end
 
     ### extract results`
     return OptResults(

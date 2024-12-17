@@ -14,6 +14,7 @@ using Ipopt
 using Gurobi
 using SCIP
 using NLsolve
+using Polynomials
 
 
 
@@ -155,6 +156,17 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
     Qmin = -1 * v_max .* link_area .* 1000
     Qmax = v_max .* link_area .* 1000
 
+    # q bounds for pumps
+    if !isempty(network.pump_idx)
+        for (i, p) ∈ enumerate(network.pump_idx)
+            p = Polynomial([network.pump_C[i], network.pump_B[i], network.pump_A[i]])
+            r = roots(p)
+            r = r[r .> 0][1]
+            Qmax[network.pump_idx, :] .= r .* 1000
+            Qmin[network.pump_idx, :] .= 0
+        end
+    end
+
     # u bounds at booster locations
     b_loc, _ = get_booster_inputs(network, network.name, sim_days, Δk, Δt) # booster control locations
     Umin_b = u_wq_bounds[1] * ones(length(b_loc))
@@ -182,8 +194,8 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
         θmax .= network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)
     end
 
-    θmin[network.pump_idx, :] .= network.pump_C .* -1.5
-    θmax[network.pump_idx, :] .= network.pump_C .* 1.5
+    θmin[network.pump_idx, :] .= network.pump_C .* -1.05
+    θmax[network.pump_idx, :] .= 0
 
     # set discretization parameters and variables
     s_p = []
@@ -594,9 +606,9 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     @variable(model, 0 ≤ q⁺[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ q⁻[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ s[i=1:n_l, k=1:n_t])
-    @variable(model, θmin[i, k] ≤ θ[i=1:n_l, k=1:n_t] ≤ θmax[i, k])
-    @variable(model, θmin[i, k] ≤ θ⁺[i=1:n_l, k=1:n_t] ≤ θmax[i, k])  
-    @variable(model, 0 ≤ θ⁻[i=1:n_l, k=1:n_t])
+    @variable(model, θ[i=1:n_l, k=1:n_t])
+    @variable(model, θ⁺[i=1:n_l, k=1:n_t])  
+    @variable(model, θ⁻[i=1:n_l, k=1:n_t])
     @variable(model, u_m[i=1:n_m, k=1:n_t])
 
     if solver ∈ ["Gurobi", "SCIP"]  && integer
@@ -658,14 +670,14 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     if solver ∈ ["Gurobi", "SCIP"]
         # @constraint(model, flow_direction_pos[i=core_links, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=core_links, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
-        # @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
-        @constraint(model, flow_direction[i=core_links, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
+        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
+        # @constraint(model, flow_direction[i=core_links, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
         # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
         # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
         # @constraint(model, head_loss_direction[i=1:n_l, k=1:n_t], [ θ⁻[i, k], θ⁺[i, k]] in SOS1())
     elseif solver == "Ipopt"
         @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
-        @constraint(model, flow_direction[i=core_links, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
+        # @constraint(model, flow_direction[i=core_links, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
         # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
     end

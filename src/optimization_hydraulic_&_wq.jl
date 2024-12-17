@@ -195,7 +195,7 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
     end
 
     θmin[network.pump_idx, :] .= network.pump_C .* -1.05
-    θmax[network.pump_idx, :] .= 0
+    θmax[network.pump_idx, :] .= 1000
 
     # set discretization parameters and variables
     s_p = []

@@ -190,12 +190,12 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
         θmax = a .* Qmax .^ 2 .+ b .* Qmax
     else
         a, b = nothing, nothing
-        θmin .= (network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)) .* -1
-        θmax .= network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)
+        θmin = (network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)) .* -1
+        θmax = network.r .* Qmax .* abs.(Qmax) .^ (network.nexp .- 1)
     end
 
-    θmin[network.pump_idx, :] .= network.pump_C .* -1.05
-    θmax[network.pump_idx, :] .= 0
+    θmin[network.pump_idx, :] .= network.pump_C .* -1.5
+    θmax[network.pump_idx, :] .= network.pump_C .* 1.5
 
     # set discretization parameters and variables
     s_p = []
@@ -568,11 +568,11 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
         ### IPOPT
         model = Model(Ipopt.Optimizer)
-        set_optimizer_attribute(model, "max_iter", 3000)
+        # set_optimizer_attribute(model, "max_iter", 5000)
         set_optimizer_attribute(model, "warm_start_init_point", "yes")
-        # set_optimizer_attribute(model, "linear_solver", "ma57")
+        set_optimizer_attribute(model, "linear_solver", "ma57")
         # set_optimizer_attribute(model, "linear_solver", "spral")
-        set_optimizer_attribute(model, "linear_solver", "ma97")
+        # set_optimizer_attribute(model, "linear_solver", "ma97")
         # set_attribute(model, "linear_solver", "pardiso")
         set_optimizer_attribute(model, "mu_strategy", "adaptive")
         set_optimizer_attribute(model, "mu_oracle", "quality-function")
@@ -618,9 +618,9 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     if solver ∈ ["Gurobi", "SCIP"]  && integer
         @variable(model, z[i=1:n_l, k=1:n_t], binary=true) # integer variables for pipe flow directions?
-        for i ∈ pump_idx
-            fix.(z[i], 1; force=true)
-        end
+        # for i ∈ pump_idx
+        #     fix.(z[i], 1; force=true)
+        # end
     elseif solver ∈ ["Gurobi", "SCIP"] && !integer
         @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
         # @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
@@ -752,7 +752,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         # set_start_value.(q, q_0)
         set_start_value.(q⁺, q⁺_0)
         set_start_value.(q⁻, q⁻_0)
-        set_start_value.(z, z_0)
+        # set_start_value.(z, z_0)
         # set_start_value.(θ, θ_0)
         # set_start_value.(θ⁺, θ⁺_0)
         # set_start_value.(θ⁻, θ⁻_0)
@@ -762,9 +762,6 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         end
     end
 
-
-
-
     ### solve optimization problem
     optimize!(model)
     solution_summary(model)
@@ -773,6 +770,13 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     accepted_status = [LOCALLY_SOLVED; ALMOST_LOCALLY_SOLVED; OPTIMAL; ALMOST_OPTIMAL; TIME_LIMIT]
     
     if term_status ∉ accepted_status
+
+        println("Model is infeasible. Computing IIS...")
+    
+
+        conflict = compute_conflict!(model)
+        println("Conflict is: ", conflict)
+
 
         @error "Optimization problem did not converge. Please check the model formulation and solver settings."
 

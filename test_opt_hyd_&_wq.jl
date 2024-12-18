@@ -4,7 +4,7 @@ using Revise
 using Plots
 
 # load network data
-net_name = "Net1" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
+net_name = "Net3" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name)
 
 # create optimization parameters
@@ -31,7 +31,7 @@ cpu_time = @elapsed begin
     opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
 end
 
-plot(opt_results.u_m[1, 1:end-1])
+plot(opt_results.θ⁻[network.pump_idx[1], :])
 
 plot(opt_results.q⁺[end, 1:end-1])
 plot!(opt_results.q⁻[end, 1:end-1])

@@ -187,6 +187,7 @@ function load_network(net_name::String, network_dir=NETWORK_PATH * net_name; dbv
     # adjacency matrices
     node_in_idx = [node_name_to_idx[name] for name in linkinfo.node_in]
     node_out_idx = [node_name_to_idx[name] for name in linkinfo.node_out]
+
     iA = zeros(Int64, 2n_l)
     jA = zeros(Int64, 2n_l)
     vA = zeros(Int64, 2n_l)
@@ -244,7 +245,9 @@ function forest_core_decomp(n_l, n_j, n_t, d, A12, A10_res, A10_tank)
     np = n_l
     nj = n_j
     nt = n_t
-    A10 = hcat(A10_res, A10_tank)
+    A10 = hcat(copy(A10_res), copy(A10_tank))
+    A12 = copy(A12)
+
 
     P = collect(1:np) # original pipes indices
     V = collect(1:nj) # original junction indices

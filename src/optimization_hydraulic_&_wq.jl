@@ -565,16 +565,16 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         model = Model(Ipopt.Optimizer)
         # set_optimizer_attribute(model, "max_iter", 5000)
         set_optimizer_attribute(model, "warm_start_init_point", "yes")
-        # set_optimizer_attribute(model, "linear_solver", "ma57")
+        set_optimizer_attribute(model, "linear_solver", "ma57")
         # set_optimizer_attribute(model, "linear_solver", "spral")
-        set_optimizer_attribute(model, "linear_solver", "ma97")
+        # set_optimizer_attribute(model, "linear_solver", "ma97")
         # set_attribute(model, "linear_solver", "pardiso")
         set_optimizer_attribute(model, "mu_strategy", "adaptive")
         set_optimizer_attribute(model, "mu_oracle", "quality-function")
         set_optimizer_attribute(model, "fixed_variable_treatment", "make_parameter")
         # set_optimizer_attribute(model, "tol", 1e-4)
         # set_optimizer_attribute(model, "constr_viol_tol", 1e-4)
-        set_optimizer_attribute(model, "fast_step_computation", "yes")
+        # set_optimizer_attribute(model, "fast_step_computation", "yes")
         set_optimizer_attribute(model, "print_level", 5)
 
         # @error "Optimization solver $solver has not been implemented in this work."
@@ -599,27 +599,36 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     ### define variables
 
-    # hydrualic
+    # hydraulic
     @variable(model, Hmin_j[i, k] ≤ h_j[i=1:n_j, k=1:n_t] ≤ Hmax_j[i, k])
     @variable(model, Hmin_tk[i, k] ≤ h_tk[i=1:n_tk, k=1:n_t+1] ≤ Hmax_tk[i, k])
     @variable(model, Qmin[i, k] ≤ q[i=1:n_l, k=1:n_t] ≤ Qmax[i, k])
     @variable(model, 0 ≤ q⁺[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ q⁻[i=1:n_l, k=1:n_t])
-    @variable(model, 0 ≤ s[i=1:n_l, k=1:n_t])
-    @variable(model, θmin[i, k] ≤ θ[i=1:n_l, k=1:n_t] ≤ θmax[i, k])
+    # @variable(model, 0 ≤ s[i=1:n_l, k=1:n_t]) # something to do with water quality
+    @variable(model, θ[i=1:n_l, k=1:n_t])
     @variable(model, θ⁺[i=1:n_l, k=1:n_t])  
     @variable(model, θ⁻[i=1:n_l, k=1:n_t])
-    @variable(model, u_m[i=1:n_m, k=1:n_t])
-    @variable(model, z[i=1:n_m, k=1:n_t], binary=true)
+    # @variable(model, u_m[i=1:n_m, k=1:n_t]) # n_m is the number of pumps
+
+    if solver ∈ ["Gurobi", "SCIP"]  && integer
+        @variable(model, z[i=1:n_l, k=1:n_t], binary=true) # integer variables for pipe flow directions?
+        # for i ∈ pump_idx
+        #     fix.(z[i], 1; force=true)
+        # end
+    elseif solver ∈ ["Gurobi", "SCIP"] && !integer
+        @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
+        # @constraint(model, complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) == 0.0)
+    else
+        @variable(model, 0 ≤ z[i=1:n_l, k=1:n_t] ≤ 1)
+        # @constraint(model, flow_complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) ≤ 1e-4)
+    end
+
 
     # water quality
     # TO BE COMPLETED!!!
 
-    # ### fix variables
-    for i ∈ pump_idx
-        fix.(θ⁻[i, :], 0.0, force=true)
-        fix.(q⁻[i, :], 0.0, force=true)
-    end
+
 
     ### define constraints
 
@@ -649,48 +658,48 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         end
         # head gain across pump links
         for i ∈ pump_idx
-            @constraint(model, θ⁺[i, k] == -1 .* (pump_A[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000)^2 + pump_B[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000) + pump_C[findfirst(x -> x == i, pump_idx)]) + u_m[findfirst(x -> x == i, pump_idx), k])
+            @constraint(model, θ⁺[i, k] == -1 .* (pump_A[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000)^2 + pump_B[findfirst(x -> x == i, pump_idx)] * (q⁺[i, k] / 1000) + pump_C[findfirst(x -> x == i, pump_idx)]) ) #+ u_m[findfirst(x -> x == i, pump_idx), k])
         end
     end
         
 
     # flow and head loss direction constraints
     @constraint(model, flow_value[i=1:n_l, k=1:n_t], q⁺[i, k] - q⁻[i, k] == q[i, k])
-    @constraint(model, flow_value_abs[i=1:n_l, k=1:n_t], q⁺[i, k] + q⁻[i, k] == s[i, k])
+    # @constraint(model, flow_value_abs[i=1:n_l, k=1:n_t], q⁺[i, k] + q⁻[i, k] == s[i, k])
     @constraint(model, head_loss_value[i=1:n_l, k=1:n_t], θ⁺[i, k] - θ⁻[i, k] == θ[i, k])
 
 
-    # complementarity constraints for flow direction
+    # complementarity constraints for flow direction: stopped here!
     if solver ∈ ["Gurobi", "SCIP"]
         # @constraint(model, flow_direction_pos[i=core_links, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=core_links, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
+        # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
+        # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
         @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
         # @constraint(model, flow_direction[i=core_links, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
         # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
         # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
         # @constraint(model, head_loss_direction[i=1:n_l, k=1:n_t], [ θ⁻[i, k], θ⁺[i, k]] in SOS1())
     elseif solver == "Ipopt"
-        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] == 0)
+        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
         # @constraint(model, flow_direction[i=core_links, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
         # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
     end
 
-    # pump status constraints
+    # complementarity constraints for pump status
     if !isempty(pump_idx)
         if solver == "Gurobi"
-            @constraint(model, pump_status_1[i=pump_idx, k=1:n_t], q⁺[i, k] ≤ z[findfirst(x -> x == i, pump_idx), k] * Qmax[i, k])
-            @constraint(model, pump_status_2[i=pump_idx, k=1:n_t], q⁺[i, k] ≥ z[findfirst(x -> x == i, pump_idx), k] * Qmin[i, k])
-            @constraint(model, pump_status_3[i=1:size(pump_idx)[1], k=1:n_t], -1e6 .* (1 - z[i, k]) ≤ u_m[i, k])
-            @constraint(model, pump_status_4[i=1:size(pump_idx)[1], k=1:n_t], 1e6 .* (1 - z[i, k]) ≥ u_m[i, k])
-            # @constraint(model, pump_status[i=pump_idx, k=1:n_t], [u_m[findfirst(x -> x == i, pump_idx), k], q⁺[i, k]] in SOS1())
+            @constraint(model, pump_status[i=pump_idx, k=1:n_t], [θ⁻[i, k], q⁺[i, k]] in SOS1())
             # @constraint(model, pump_status[i=1:n_l, k=1:n_t],  u_m[i, k] * q⁺[i, k] ≤ 1e-6)
+            # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  θ⁻[i, k] ≤ 100*(1 - z[i, k]) )
+            # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  θ⁻[i, k] ≥ -100*(1 - z[i, k]) )
             # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
             # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
         elseif solver ∈ ["Ipopt", "SCIP"]
-            # @constraint(model, pump_status[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] == 0)
-            @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-1)
-            @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-1)
+            @constraint(model, pump_status[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] == 0)
+            # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
+            # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
         end
     end
 
@@ -713,7 +722,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     #     # insert code here...
     # end
     if !isempty(pump_idx)
-        @objective(model, Min, sum(q[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
+        @objective(model, Min, sum(q⁺[i, k] for i ∈ pump_idx, k ∈ 1:n_t))
+        # @objective(model, Min, sum(u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] for i ∈ pump_idx, k ∈ 1:n_t) + 1000 * sum(q⁺[i, k] * q⁻[i, k] for i ∈ 1:n_l, k ∈ 1:n_t))
     else
         @objective(model, Min, 0.0)
     end
@@ -729,7 +739,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         # set_start_value.(q, q_0)
         set_start_value.(q⁺, q⁺_0)
         set_start_value.(q⁻, q⁻_0)
-        set_start_value.(z, z_0)
+        # set_start_value.(z, z_0)
         # set_start_value.(θ, θ_0)
         # set_start_value.(θ⁺, θ⁺_0)
         # set_start_value.(θ⁻, θ⁻_0)
@@ -739,9 +749,6 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         end
     end
 
-
-
-
     ### solve optimization problem
     optimize!(model)
 
@@ -750,6 +757,13 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     accepted_status = [LOCALLY_SOLVED; ALMOST_LOCALLY_SOLVED; OPTIMAL; ALMOST_OPTIMAL]
     
     if term_status ∉ accepted_status
+
+        println("Model is infeasible. Computing IIS...")
+    
+
+        conflict = compute_conflict!(model)
+        println("Conflict is: ", conflict)
+
 
         @error "Optimization problem did not converge. Please check the model formulation and solver settings."
 
@@ -774,10 +788,10 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         q=value.(q),
         h_j=value.(h_j),
         h_tk=value.(h_tk),
-        u_m=value.(u_m),
+        u_m=zeros(n_m,n_t), # u_m=value.(u_m),
         q⁺=value.(q⁺),
         q⁻=value.(q⁻),
-        s=value.(s),
+        s=zeros(n_l,n_t), #value.(s),
         θ=value.(θ),
         θ⁺=value.(θ⁺),
         θ⁻=value.(θ⁻),

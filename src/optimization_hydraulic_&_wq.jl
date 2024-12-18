@@ -767,14 +767,31 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     ### solve optimization problem
     optimize!(model)
-    print(model)
     solution_summary(model)
     term_status = termination_status(model)
+    print(term_status)
     accepted_status = [LOCALLY_SOLVED; ALMOST_LOCALLY_SOLVED; OPTIMAL; ALMOST_OPTIMAL; TIME_LIMIT]
     
     if term_status ∉ accepted_status
 
         @error "Optimization problem did not converge. Please check the model formulation and solver settings."
+
+        if termination_status(model) == INFEASIBLE 
+            println("Model is infeasible. Computing IIS...")
+            compute_conflict!(model)
+
+            #conflict_constraint_list = ConstraintRef[]
+            for (F, S) in list_of_constraint_types(model)
+                for con in all_constraints(model, F, S)
+                    if MOI.get.(model, MOI.ConstraintConflictStatus(), con) == MOI.IN_CONFLICT
+                        #push!(conflict_constraint_list, con)
+                        println(con)
+                    end
+                end
+            end
+            # Gurobi.compute_conflict(model.moi_backend.optimizer.model)
+            # MOI.get(model.moi_backend, Gurobi.ConstraintConflictStatus(), con1.index)
+        end
 
         return OptResults(
             q=zeros(n_l, n_t),

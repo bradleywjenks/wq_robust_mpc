@@ -7,7 +7,7 @@ using Plots
 
 
 # load network data
-net_name = "Net1" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
+net_name = "Net3" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name);
 
 # create optimization parameters
@@ -73,11 +73,8 @@ end=#
 
 # network layout
 plot_network_layout(network; pumps=true, legend=true, legend_pos=:lc, fig_size=(600, 450), save_fig=true)
-
-state_to_plot = :q
-state_df = getfield(opt_results,state_to_plot)
-elements_to_plot = network.pump_idx
-plot_timeseries_opt(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true) 
+plot_timeseries_opt(network, opt_results, "pumps"; fig_size=(600, 450), save_fig=false)
+plot_timeseries_opt(network, opt_results, "tanks"; fig_size=(600, 450), save_fig=false)
 
 #=
 # EPANET simulation results

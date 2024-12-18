@@ -603,6 +603,124 @@ function plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot;
 end
 
 
+"""
+Function to plot optimization time series at select elements
+"""
+function plot_timeseries_opt(network, opt_results, elements_to_plot; fig_size=(600, 450), save_fig=false)
+    # state_to_plot::Vararg{Vector{Symbol}}, state_af::Vararg{Vector{Float64}}
+
+    xmax = network.n_t; x = 1:24
+
+    if elements_to_plot == "pumps" #|| elements_to_plot[fig] == "tanks"
+        states_to_plot = [ :q, :θ ] #:θ⁺, :θ⁻ ];
+        elements_to_plot_idx = network.pump_idx
+        highlight_timesteps = findall(Bool.(opt_results.z[network.pump_idx,:]))
+        legend = "Pumps"
+
+        pump_A = network.pump_A; pump_B = network.pump_B; pump_C = network.pump_C
+        pump_curve(q) = -(pump_A.*(q/1000).^2 .+ pump_B.*(q/1000) .+ pump_C)
+        θ_check = zeros(length(elements_to_plot_idx),xmax)
+        q_pump = opt_results.q[elements_to_plot_idx,:]
+        for i in 1:length(elements_to_plot_idx)
+            θ_check[i,[ index[2] for index in highlight_timesteps[:,i] ]] = pump_curve(q_pump[i,[ index[2] for index in highlight_timesteps[:,i] ]])
+        end
+
+    elseif elements_to_plot == "tanks"
+        states_to_plot = [ :h_tk ] #:θ⁺, :θ⁻ ];
+        elements_to_plot_idx = 1:length(network.tank_idx)
+        highlight_timesteps = [ CartesianIndex(i, j) for i in elements_to_plot_idx, j in x ]
+        legend = "Tanks"
+    end
+
+    n_s = length(states_to_plot)
+
+    f = Figure(size=fig_size)
+    layout = f[1, 1] = GridLayout()
+
+    for state_idx in 1:n_s
+        # Determine row and column based on index
+        row = state_idx; col = 1;
+
+        # Extract data for the current state_to_plot
+        state = states_to_plot[state_idx]
+        state_af = getfield(opt_results,state)
+
+        if length(elements_to_plot_idx) > 1
+            ymin = minimum(state_af[elements_to_plot_idx,:].min)
+            ymax = maximum(state_af[elements_to_plot_idx,:].max)
+        elseif length(elements_to_plot_idx) == 1
+            ymin = minimum(state_af[elements_to_plot_idx,:])
+            ymax = maximum(state_af[elements_to_plot_idx,:])
+        else
+            @info "No elements selected to plot."
+        end
+
+        if state == :h
+            ylabel = "Pressure head h [m]"
+            ymin = 10 * floor(ymin / 10)
+            ymax = 10 * ceil(ymax / 10)
+        elseif state == :q
+            ylabel = "Flows q [m]"
+            ymin = 10 * floor(ymin / 10)
+            ymax = 10 * ceil(ymax / 10)
+        elseif state == :θ
+            ylabel = "Head difference θ [m]"
+            ymin = 10 * floor(ymin / 10)
+            ymax = 10 * ceil(ymax / 10)
+        elseif state == :h_tk
+            ylabel = "Tank head [m]"
+            ymin = 10 * floor(ymin / 10)
+            ymax = 10 * ceil(ymax / 10)
+        #= elseif state == :θ⁺
+            ylabel = "θ⁺ [m]"
+            ymin = 10 * floor(ymin / 10)
+            ymax = 10 * ceil(ymax / 10)
+        elseif state == :θ⁻
+            ylabel = "θ⁻ [m]"
+            ymin = 10 * floor(ymin / 10)
+            ymax = 10 * ceil(ymax / 10)
+        elseif state == :z
+            ylabel = "Schedule [on/off]"
+            ymin = 0
+            ymax = 1 =#
+        end
+
+        # Add an axis to the layout
+        ax = Axis(layout[row, col], #f[1, 1],
+            xlabel = "Time [h]",
+            ylabel = ylabel,
+            xlabelsize = 16,
+            ylabelsize = 16,
+            xticks = 0:xmax/4:xmax,
+            # yticks= ymin:(ymax-ymin)/4:ymax,
+            )
+        ylims!(low=ymin, high=ymax)
+        xlims!(low=0, high=xmax)
+
+        # Add the data series to the plot
+        for element_idx in elements_to_plot_idx
+            lines!(ax, x, state_af[element_idx,x], label=string(element_idx), linewidth = 1.5)
+        end 
+
+        if state == :θ
+            for i in 1:length(elements_to_plot_idx)
+                lines!(ax, x[[ index[2] for index in highlight_timesteps[:,i] ]], θ_check[i, [ index[2] for index in highlight_timesteps[:,i] ]], label=string(elements_to_plot_idx[i]), linewidth = 1.5, linestyle = :dot, color = :red)
+            end
+        end
+    end
+
+    # ax = Axis(layout[findfirst(states_to_plot .== :θ), 1])
+
+    f[1, 2] = axislegend(legend, labelsize=14, framevisible=false, position=:rt)
+
+    #= if save_fig
+        save(pwd() * "/plots/" * network.name * "_" * state_to_plot * "_timeseries.pdf", f)
+    end =#
+
+    return f
+
+
+end
 
 
 

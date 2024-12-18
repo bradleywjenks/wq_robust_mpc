@@ -16,7 +16,7 @@ export optimize_wq
 # optimization_hydraulic_wq.jl
 export make_prob_data, optimize_hydraulic_wq, vmax, get_starting_point
 # plotting.jl
-export plot_network_layout, plot_network_edges, plot_network_sim, plot_timeseries_sim, plot_wq_solver_comparison
+export plot_network_layout, plot_network_edges, plot_network_sim, plot_timeseries_sim, plot_wq_solver_comparison, plot_timeseries_opt
 
 
 

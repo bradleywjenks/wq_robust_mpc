@@ -10,7 +10,6 @@ using Plots
 net_name = "Net1" # "Threenode", "Net1", "Net3", "2loopsNet", "Net25", "modena", "BWFLnet", "L-town"
 network = load_network(net_name);
 
-
 # create optimization parameters
 sim_days = 1
 Δk = 60 * 60
@@ -25,7 +24,6 @@ x_wq_0 = 0.5 # initial water quality conditions
 J = nothing
 opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin, QA=QA, x_wq_bounds=x_wq_bounds, u_wq_bounds=u_wq_bounds, obj_type=obj_type, x_wq_0=x_wq_0, J=J);
 
-
 # run optimization solver
 cpu_time = @elapsed begin
     solver = "Gurobi" # "Gurobi", "Ipopt"
@@ -33,7 +31,15 @@ cpu_time = @elapsed begin
     integer = true
     warm_start = false
     opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
-end
+end 
+
+h_tk = opt_results.h_tk;
+q = opt_results.q;
+
+# Plot optimization results
+#= elements_to_plot = 1; #network.node_names[network.pump_idx]
+state_df = getfield(opt_results, :h_tk) #Symbol(state_to_plot))
+plot_timeseries_sim(network, state_df, "tank head", elements_to_plot; fig_size=(700, 350), save_fig=true) =#
 
 #=
 ##### store optimal schedule/control settings and use for wq simulation #####
@@ -60,7 +66,7 @@ sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=sour
 cpu_time = @elapsed begin
     x = wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=kb, kw=kw, x0=x0, b_loc=b_loc, b_u=b_u) # with booster control
 end=#
-
+=#
 
 
 ##### Plotting functions #####
@@ -68,7 +74,12 @@ end=#
 # network layout
 plot_network_layout(network; pumps=true, legend=true, legend_pos=:lc, fig_size=(600, 450), save_fig=true)
 
+state_to_plot = :q
+state_df = getfield(opt_results,state_to_plot)
+elements_to_plot = network.pump_idx
+plot_timeseries_opt(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true) 
 
+#=
 # EPANET simulation results
 state_to_plot = "chlorine" # "pressure", "head", "demand", "flow", "flowdir", "velocity", "chlorine", "age", "trace"
 state_df = getfield(sim_results, Symbol(state_to_plot))

@@ -153,8 +153,8 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
     v_init = Matrix(getfield(sim_results, :velocity))'
     v_max = vmax(network, v_init[2:end, :])
     link_area = (pi .* network.D .^ 2) ./ 4
-    Qmin = -1 * v_max .* link_area .* 1000
-    Qmax = v_max .* link_area .* 1000
+    Qmin = -1 * v_max .* link_area .* 1000 * 10
+    Qmax = v_max .* link_area .* 1000 * 10
 
     # q bounds for pumps
     if !isempty(network.pump_idx)
@@ -162,7 +162,7 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
             p = Polynomial([network.pump_C[i], network.pump_B[i], network.pump_A[i]])
             r = roots(p)
             r = r[r .> 0][1]
-            Qmax[network.pump_idx, :] .= r .* 1000
+            Qmax[network.pump_idx, :] .= r .* 1000 * 2
             Qmin[network.pump_idx, :] .= 0
         end
     end
@@ -671,17 +671,17 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
 
     # complementarity constraints for flow direction: stopped here!
     if solver ∈ ["Gurobi", "SCIP"]
-        # @constraint(model, flow_direction_pos[i=core_links, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
-        # @constraint(model, flow_direction_neg[i=core_links, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
+        @constraint(model, flow_direction_pos[i=core_links, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
+        @constraint(model, flow_direction_neg[i=core_links, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
         # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
-        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
+        # @constraint(model, flow_direction[i=1:n_l, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
         # @constraint(model, flow_direction[i=core_links, k=1:n_t], [q⁻[i, k], q⁺[i, k]] in SOS1())
         # @constraint(model, head_loss_direction_pos[i=1:n_l, k=1:n_t], θ⁺[i, k] ≤ z[i, k] * θmax[i, k])
         # @constraint(model, head_loss_direction_neg[i=1:n_l, k=1:n_t], θ⁻[i, k] ≤ (1 - z[i, k]) * abs(θmin[i, k]))
         # @constraint(model, head_loss_direction[i=1:n_l, k=1:n_t], [ θ⁻[i, k], θ⁺[i, k]] in SOS1())
     elseif solver == "Ipopt"
-        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
+        @constraint(model, flow_direction[i=1:n_l, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 1e-6)
         # @constraint(model, flow_direction[i=core_links, k=1:n_t], q⁺[i, k] * q⁻[i, k] ≤ 0)
         # @constraint(model, flow_direction_pos[i=1:n_l, k=1:n_t], q⁺[i, k] ≤ z[i, k] * Qmax[i, k])
         # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
@@ -697,7 +697,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
             # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
             # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
         elseif solver ∈ ["Ipopt", "SCIP"]
-            @constraint(model, pump_status[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] == 0)
+            @constraint(model, pump_status[i=pump_idx, k=1:n_t],  θ⁻[i, k] * q⁺[i, k] ≤ 1e-6)
             # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
             # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
         end
@@ -758,11 +758,13 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     
     if term_status ∉ accepted_status
 
-        println("Model is infeasible. Computing IIS...")
-    
-
-        conflict = compute_conflict!(model)
-        println("Conflict is: ", conflict)
+        # for (F, S) in list_of_constraint_types(model)
+        #     for con in all_constraints(model, F, S)
+        #         if MOI.get.(model, MOI.ConstraintConflictStatus(), con) == MOI.IN_CONFLICT
+        #             println(con)
+        #         end
+        #     end
+        # end
 
 
         @error "Optimization problem did not converge. Please check the model formulation and solver settings."

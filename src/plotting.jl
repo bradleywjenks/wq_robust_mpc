@@ -734,6 +734,18 @@ function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_meth
     c_r = c[1:network.n_r, :]
     c_j = c[network.n_r+1:network.n_r+network.n_j, :]
     c_tk = c[network.n_r+network.n_j+1:network.n_r+network.n_j+network.n_tk, :]
+    node_idx = network.node_name_to_idx[node_to_plot]
+    if node_idx in network.reservoir_idx
+        plot_idx = findfirst(x -> x == node_idx, network.reservoir_idx)
+        y = c_r[plot_idx, :]
+    elseif node_idx in network.junction_idx
+        plot_idx = findfirst(x -> x == node_idx, network.junction_idx)
+        y = c_j[plot_idx, :]
+    else
+        plot_idx = findfirst(x -> x == node_idx, network.tank_idx)
+        y = c_tk[plot_idx, :]
+    end
+
 
     if disc_method == "explicit-central"
         disc_method = "Explicit Central"
@@ -745,15 +757,23 @@ function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_meth
         disc_method = "Implicit Central"
     end
 
+
+    # define axis properties
     ylabel = "Chlorine [mg/L]"
-    ymin = minimum(state_df[!, string.(node_to_plot)])
+    if !isempty(state_df)
+        x = state_df.timestamp
+        ymin = minimum(state_df[!, string.(node_to_plot)])
+        ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
+        xmax = 6 * ceil(maximum(x) / 6)
+    else
+        x = range(1,size(c,2)).*Δt./Δk
+        ymin = minimum(y)
+        ymax = 1.1 * maximum(y)
+        xmax = 6 * ceil(maximum(x) / 6)
+    end
     ymin = 0.1 * floor(ymin / 0.1)
-    ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
     ymax = 0.1 * ceil(ymax / 0.1)
-    xmax = 6 * ceil(maximum(state_df.timestamp) / 6)
     # xmax = round(maximum(state_df.timestamp), digits=0)
-
-
 
     f = Figure(size=fig_size)
     ax = Axis(f[1, 1],
@@ -769,30 +789,26 @@ function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_meth
     )
     ylims!(low=ymin, high=ymax)
     xlims!(low=0, high=xmax)
-    x = state_df.timestamp
 
-    # EPANET solver results
-    epanet = lines!(ax, x, state_df[!, string(node_to_plot)], label="EPANET", linewidth=1.5)
 
-    # wq_solver results
-    node_idx = network.node_name_to_idx[node_to_plot]
-    if node_idx in network.reservoir_idx
-        plot_idx = findfirst(x -> x == node_idx, network.reservoir_idx)
-        y = c_r[plot_idx, :]
-    elseif node_idx in network.junction_idx
-        plot_idx = findfirst(x -> x == node_idx, network.junction_idx)
-        y = c_j[plot_idx, :]
-    else
-        plot_idx = findfirst(x -> x == node_idx, network.tank_idx)
-        y = c_tk[plot_idx, :]
+    # plot EPANET solver results
+    if !isempty(state_df)
+        epanet = lines!(ax, x, state_df[!, string(node_to_plot)], label="EPANET", linewidth=1.5)
     end
+
+
+    # plot wq_solver results
     wq_solver = lines!(ax, x, y, label=disc_method, linewidth=1.5)
 
     dummy = lines!(x, y, color=:white, linewidth=0.0)
 
 
     # add legend
-    f[1, 2] = axislegend(ax, [epanet, wq_solver], ["EPANET", disc_method], "Δt="*string(Δt)*" s, Δk="*string(Δk)*" s", position = :rt, labelsize=14, framevisible=false, titlefont="normal")
+    if !isempty(state_df)
+        f[1, 2] = axislegend(ax, [epanet, wq_solver], ["EPANET", disc_method], "Δt="*string(Δt)*" s, Δk="*string(Δk)*" s", position = :rt, labelsize=14, framevisible=false, titlefont="normal")
+    else
+        f[1, 2] = axislegend(ax, [wq_solver], [disc_method], "Δt="*string(Δt)*" s, Δk="*string(Δk)*" s", position = :rt, labelsize=14, framevisible=false, titlefont="normal")
+    end
     # axislegend(ax, [epanet, wq_solver, dummy], ["EPANET", disc_method, "(Δt="*string(Δt)*", Δk="*string(Δk)*" s)"], position = :rt, labelsize=14, framevisible=false)
     # f[1, 2] = axislegend(legend_title, labelsize=14, framevisible=false, position=:rt, fontstyle="normal")
 

@@ -65,8 +65,8 @@ wall reactions are included.
 1	94.6353	76.2						
 								
 [CONTROLS]								
-;LINK 9 OPEN IF NODE 2 BELOW 33.5								
-;LINK 9 CLOSED IF NODE 2 ABOVE 42.7								
+LINK 9 OPEN IF NODE 2 BELOW 33.5								
+LINK 9 CLOSED IF NODE 2 ABOVE 42.7								
 								
 								
 								

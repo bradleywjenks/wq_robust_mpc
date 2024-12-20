@@ -15,7 +15,7 @@ network = load_network(net_name)
 ##### Simulation functions #####
 
 # solver inputs
-sim_days = 7
+sim_days = 1
 Δk = 60 * 60 # hydraulic time step (default is Δk = 3600 seconds)
 Δt = 15 * 60 # water quality time step (default is Δt = 60 seconds)
 kb = 0.5 # (1/day)
@@ -40,8 +40,6 @@ sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=sour
 cpu_time = @elapsed begin
     x = wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=kb, kw=kw, x0=x0, b_loc=b_loc, b_u=b_u)
 end
-
-
 
 
 

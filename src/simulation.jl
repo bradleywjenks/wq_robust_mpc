@@ -115,6 +115,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     # load network file via WNTR pacakge
     wntr = pyimport("wntr")
     wn = wntr.network.WaterNetworkModel(net_path)
+    # print(wn)
 
     # set simulation times
     wn.options.time.duration = sim_days * 24 * 3600 # number of days set by user
@@ -363,6 +364,7 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     sim_type = "hydraulic"
     sim_results = epanet_solver(network, sim_type; sim_days=sim_days, Δk=Δk)
     k_set = sim_results.timestamp .* 3600
+    # print("k_set is ") println(k_set)
     n_t = size(k_set)[1]
 
     # get flow, velocity, demand, and Reynolds number values
@@ -423,6 +425,8 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     s_p = floor.(Int, s_p)
     s_p[s_p .== 0] .= 1
     n_s = sum(s_p)
+    print("n_s is worth ")
+    println(n_s)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
     # λ_p[λ_p .> 1] .= 1 # bound λ to [0, 1]
@@ -441,6 +445,7 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     # initialize chlorine state variables
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
     T_k = Int(T / Δt) # number of discrete time steps
+    #print(T_k)
     c_r_t = source_cl
     c_j_t = x0 .* ones(n_j)
     c_tk_t = x0 .* ones(n_tk)
@@ -687,6 +692,377 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
 end
 
 
+"""
+Water quality solver code from scratch.
+"""
+function wq_solver_fix_hyd(network, hyd_results, opt_params, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, kw=0.1, x0=0, b_loc=nothing, b_u=nothing)
+
+    ##### SET SOLVER PARAMETERS #####
+
+    # assign constant parameters
+    kb = (kb/3600/24) # units = 1/second
+    kw = (kw/3600/24) # units = 1/second
+    ν = 1.0533e-6 # kinematic velocity of water in m^2/s
+    D_m = 1.208e-9 # molecular diffusivity of chlorine @ 20°C in m^2/s
+    Sc = ν / D_m # schmidt number for computing mass transfer coefficient
+    ϵ_reg = 1e-3 # small regularization value to avoid division by zero
+
+    # unload network data
+    net_name = network.name
+    n_r = network.n_r
+    n_j = network.n_j
+    n_tk = network.n_tk
+    n_m = network.n_m
+    n_v = network.n_v
+    n_p = network.n_p
+    reservoir_idx = network.reservoir_idx
+    junction_idx = network.junction_idx
+    tank_idx = network.tank_idx
+    pump_idx = network.pump_idx
+    valve_idx = network.valve_idx
+    pipe_idx = network.pipe_idx
+    link_names = network.link_names
+    node_names = network.node_names
+    link_name_to_idx = network.link_name_to_idx
+    node_name_to_idx = network.node_name_to_idx
+    L_p = network.L[pipe_idx]
+    D_p = network.D[pipe_idx]
+    n_t = network.n_t
+    d = abs.(network.d)
+
+
+    # load network hydraulics
+    #=sim_type = "hydraulic"
+    sim_results = epanet_solver(network, sim_type; sim_days=sim_days, Δk=Δk)
+    n_t = size(k_set)[1]=#
+    q = hyd_results.q # [L/s]
+    h_tk = hyd_results.h_tk # [m]
+    k_set = (0:n_t-1) .* 3600
+    #print("k_set is ")
+    #println(k_set)
+
+    # get velocity, demand, and Reynolds number values
+    #q = Matrix((sim_results.flow[:, 2:end]))'
+    qdir = zeros(size(q, 1), size(q, 2))
+    qdir[q .> 1e-3] .= 1
+    qdir[q .< -1e-3] .= -1
+    for row in eachrow(qdir)
+        for t in 1:n_t
+            # march forward in time
+            if t != 1 && row[t] == 0
+                row[t] = row[t-1]
+            end
+            # march backward in time
+            if t != n_t && row[end - t] == 0
+                row[end-t] = row[end+1-t]
+            end
+        end
+    end
+    q = abs.(q)
+    vel = 4*q./(π*network.D.^2)
+    #vel = Matrix(sim_results.velocity[:, 2:end])'
+
+    q_p = q[pipe_idx, :]
+    q_m = q[pump_idx, :]
+    q_v = q[valve_idx, :]
+    vel_p = vel[pipe_idx, :]
+    Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
+
+    # update link flow direction
+    A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)
+    A_inc = copy(A_inc_0)
+    for k ∈ 1:n_t
+        for link ∈ link_names
+            link_idx = link_name_to_idx[link]
+            if qdir[link_idx, k] == -1
+                node_in = findall(x -> x == 1, A_inc[link_idx, :, k])
+                node_out = findall(x -> x == -1, A_inc[link_idx, :, k])
+                A_inc[link_idx, node_in, k] .= -1
+                A_inc[link_idx, node_out, k] .= 1
+            end
+        end
+    end
+
+    # get tank volumes
+    lev_tk = h_tk .- repeat(network.elev[tank_idx], 1, n_t)'
+    V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')' .* 1000 # convert to L
+
+    # set discretization parameters and variables
+    vel_p_max = maximum(vel_p, dims=2)
+    s_p = L_p ./ (vel_p_max .* Δt)
+    # println(count(x -> x < 0.75, s_p))
+    # if any(s_p .< 0.75)
+    #     @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
+    #     return
+    # end
+    s_p = floor.(Int, s_p)
+    s_p[s_p .== 0] .= 1
+    n_s = sum(s_p)
+    Δx_p = L_p ./ s_p
+    λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
+    # λ_p[λ_p .> 1] .= 1 # bound λ to [0, 1]
+    # λ_p[λ_p .< 0] .= 0 # bound λ to [0, 1]  
+
+    # check CFL condition
+    if disc_method == "explicit-central" || disc_method == "explicit-upwind"
+        for k ∈ 1:n_t
+            if any(Δt .>= Δx_p ./ vel_p[:, k])
+                @error "CFL condition not satisfied. Input a smaller Δt."
+                return s_p
+            end
+        end
+    end
+
+    # initialize chlorine state variables
+    T = (sim_days*n_t)*Δk # round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
+    T_k = Int(T / Δt) # number of discrete time steps
+    #print("T_k is ") println(T_k)
+    c_r_t = source_cl
+    c_j_t = x0 .* ones(n_j)
+    c_tk_t = x0 .* ones(n_tk)
+    c_m_t = x0 .* ones(n_m)
+    c_v_t = x0 .* ones(n_v)
+    c_p_t = x0 .* ones(n_s)
+    x_t = vcat(c_r_t, c_j_t, c_tk_t, c_m_t, c_v_t, c_p_t)
+
+    n_x = n_r + n_j + n_tk + n_m + n_v + n_s
+
+    # initialize booster control variables
+    if b_u === nothing && b_loc === nothing
+        b_u = zeros(1, T_k)
+    elseif b_u === nothing && b_loc !== nothing
+        b_u = zeros(length(b_loc), T_k)
+    end
+    n_u = size(b_u, 1) # control actuator inputs
+
+    B = spzeros(n_x, n_u)
+    if b_loc !== nothing
+        for (i, b) ∈ enumerate(b_loc)
+            if b ∈ junction_idx
+                idx = findfirst(x -> x == b, junction_idx)
+                B[n_r + idx, i] = 1
+                x_t[n_r + idx] = b_u[i, 1]
+            elseif b ∈ tank_idx
+                idx = findfirst(x -> x == b, tank_idx)
+                B[n_r + n_j + idx, i] = 1
+                x_t[n_r + n_j+ idx] = b_u[i, 1]
+            else
+                @error "Booster location $b not found in network junction or tank indices."
+            end
+        end
+    end
+
+    # initialize solution matrix
+    x = zeros(n_x, T_k)
+    x[:, 1] .= x_t
+
+    
+
+    ##### MAIN WQ_SOLVER LOOP #####
+    for t ∈ 1:T_k-1
+
+        # initialize coefficient matrices in system of linear equations
+        # Ex(t+Δt) = Ax(t) + Bu(t) + f(x(t))
+        E = spzeros(n_x, n_x)
+        A = spzeros(n_x, n_x)
+        f = spzeros(n_x, n_x)
+
+        # find hydraulic time step index
+        # print("t times Δt is ") println(t*Δt)
+        k_t = searchsortedfirst(k_set, t*Δt) - 1
+        # print("k_t is ") println(k_t)
+        # k_t_Δt = k_t
+        k_t_Δt = searchsortedfirst(k_set, (t+1)*Δt) - 1
+
+        @info "Solving water quality states at time step t = $t with hydraulics at time step k = $k_t"
+
+        # construct reservoir coefficient matrices
+        for r ∈ 1:n_r
+            E[r, r] = 1
+            A[r, r] = 1
+        end
+
+        # construct junction coefficient matrices
+        for (i, j) ∈ enumerate(junction_idx)
+
+            # find all incoming and outgoing link indices at junction j
+            I_in = findall(x -> x == 1, A_inc[:, j, k_t]) # set of incoming links at junction j
+            I_out = findall(x -> x == -1, A_inc[:, j, k_t]) # set of outgoing links at junction j
+
+            # assign c_j(t+Δt) matrix coefficients
+            E[n_r + i, n_r + i] = 1
+            # nothing for A matrix
+
+            # assign c_link(t+Δt) matrix coefficients
+            for link_idx ∈ I_in
+                if link_idx ∈ pump_idx
+                    idx = findfirst(x -> x == link_idx, pump_idx)
+                    E[n_r + i, n_r + n_j + n_tk + idx] = -(q_m[idx, k_t] + ϵ_reg) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                elseif link_idx ∈ valve_idx
+                    idx = findfirst(x -> x == link_idx, valve_idx)
+                    E[n_r + i, n_r + n_j + n_tk + n_m + idx] = -(q_v[idx, k_t] + ϵ_reg) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                elseif link_idx ∈ pipe_idx
+                    qdir_p = qdir[link_idx, k_t]
+                    idx = findfirst(x -> x == link_idx, pipe_idx)
+                    if qdir_p == 1
+                        Δs = sum(s_p[1:idx])
+                    elseif qdir_p == -1
+                        Δs = sum(s_p[1:idx-1]) + 1
+                    end
+                    E[n_r + i, n_r + n_j + n_tk + n_m + n_v + Δs] = -(q_p[idx, k_t] + ϵ_reg) / (d[j, k_t] + sum(q[I_out, k_t]) + ϵ_reg)
+                else 
+                    @error "Link index $link_index not found in network pipe, pump, or valve indices."
+                end
+                # nothing for A matrix
+            end
+        end
+
+        # construct tank coefficient matrices
+        for (i, tk) ∈ enumerate(tank_idx)
+
+            # find all incoming and outgoing link indices at junction j
+            I_in = findall(x -> x == 1, A_inc[:, tk, k_t]) # set of incoming links at junction j
+            I_out = findall(x -> x == -1, A_inc[:, tk, k_t]) # set of outgoing links at junction j
+
+            # assign c_tk(t+Δt) matrix coefficients
+            E[n_r + n_j + i, n_r + n_j + i] = 1
+
+            # assign c_tk(t) matrix coefficients
+            A[n_r + n_j + i, n_r + n_j + i] = (V_tk[i, k_t] - (sum(q[I_out, k_t]) * Δt)) / V_tk[i, k_t_Δt]
+
+            # assign c_link(t) matrix coefficients
+            for link_idx ∈ I_in
+                if link_idx ∈ pump_idx
+                    idx = findfirst(x -> x == link_idx, pump_idx)
+                    A[n_r + n_j + i, n_r + n_j + n_tk + idx] = (q_m[idx, k_t] * Δt) / V_tk[i, k_t_Δt]
+                elseif link_idx ∈ valve_idx
+                    idx = findfirst(x -> x == link_idx, valve_idx)
+                    A[n_r + n_j + i, n_r + n_j + n_tk + n_m + idx] = (q_v[idx, k_t] * Δt) / V_tk[i, k_t_Δt]
+                elseif link_idx ∈ pipe_idx
+                    qdir_p = qdir[link_idx, k_t]
+                    idx = findfirst(x -> x == link_idx, pipe_idx)
+                    if qdir_p == 1
+                        Δs = sum(s_p[1:idx]) # end segment of pipe link
+                    elseif qdir_p == -1
+                        Δs = sum(s_p[1:idx-1]) + 1 # beginning segment of pipe link
+                    end
+                    A[n_r + n_j + i, n_r + n_j + n_tk + n_m + n_v + Δs] = (q_p[idx, k_t] * Δt) / V_tk[i, k_t_Δt]
+                else 
+                    @error "Link index $link_index not found in network pipe, pump, or valve indices."
+                end
+            end
+
+            # assign decay coefficient in f for tank tk
+            f[n_r + n_j + i, n_r + n_j + i] = (kb * V_tk[i, k_t] * Δt * -1) / V_tk[i, k_t_Δt]
+
+        end
+
+        # construct pump coefficient matrices
+        for (i, m) ∈ enumerate(pump_idx)
+
+            # assign c_node(t+Δt) matrix coefficients
+            node_out = findall(x -> x == -1, A_inc[m, :, k_t])[1]
+            if node_out ∈ reservoir_idx
+                idx = findfirst(x -> x == node_out, reservoir_idx)
+                E[n_r + n_j + n_tk + i, idx] = -1
+            elseif node_out ∈ junction_idx
+                idx = findfirst(x -> x == node_out, junction_idx)
+                E[n_r + n_j + n_tk + i, n_r + idx] = -1
+            elseif node_out ∈ tank_idx
+                idx = findfirst(x -> x == node_out, tank_idx)
+                E[n_r + n_j + n_tk + i, n_r + n_j + idx] = -1
+            else
+                @error "Pump upstream node $node_out not found in network reservoir, junction, or tank indices."
+            end
+
+            # assign c_pump(t+Δt) matrix coefficients
+            E[n_r + n_j + n_tk + i, n_r + n_j + n_tk + i] = 1
+
+        end
+
+        # construct valve coefficient matrices
+        for (i, v) ∈ enumerate(valve_idx)
+
+            # assign c_node(t+Δt) matrix coefficients
+            node_out = findall(x -> x == -1, A_inc[v, :, k_t])[1]
+            if node_out ∈ reservoir_idx
+                idx = findfirst(x -> x == node_out, reservoir_idx)
+                E[n_r + n_j + n_tk + n_m + i, idx] = -1
+            elseif node_out ∈ junction_idx
+                idx = findfirst(x -> x == node_out, junction_idx)
+                E[n_r + n_j + n_tk + n_m + i, n_r + idx] = -1
+            elseif node_out ∈ tank_idx
+                idx = findfirst(x -> x == node_out, tank_idx)
+                E[n_r + n_j + n_tk + n_m + i, n_r + n_j + idx] = -1
+            else
+                @error "Valve upstream node $node_out not found in network reservoir, junction, or tank indices."
+            end
+
+            # assign c_valve(t+Δt) matrix coefficients
+            E[n_r + n_j + n_tk + n_m + i, n_r + n_j + n_tk + n_m + i] = 1
+
+        end
+
+        # construct pipe (segment) coefficient matrices
+        for (i, p) ∈ enumerate(pipe_idx)
+
+            # compute mass transfer coefficient for pipe p (based on EPANET manual first-order decay model)
+            if Re[i, k_t] < 2400
+                Sh = 3.65 + (0.0668 * (D_p[i]/L_p[i]) * Re[i, k_t] * Sc) /  (1 + 0.04 * ((D_p[i]/L_p[i]) * Re[i, k_t] * Sc)^(2/3))
+            else
+                Sh = 0.0149 * Re[i, k_t]^0.88 * Sc^(1/3)
+            end
+            kf = Sh *(D_m / D_p[i])
+        
+            # find upstream and downstream node indices at pipe p
+            node_in = findall(x -> x == 1, A_inc_0[p, :, 1])[1]
+            node_out = findall(x -> x == -1, A_inc_0[p, :, 1])[1]
+            qdir_p = qdir[p, k_t]
+
+            Δs = sum(s_p[1:i-1])
+        
+            for s ∈ 1:s_p[i]
+        
+                # assign decay term in f for pipe p
+                k_p = kb + ((4 * kw * kf) / (D_p[i] * (kw + kf)))
+                f[network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s, network.n_r + network.n_j + network.n_tk + network.n_m + network.n_v + Δs + s] = k_p * Δt * -1
+
+                # assign C_pipe(t+Δt) and C_pipe(t) matrix coefficients
+                if disc_method == "explicit-central"
+                    E, A = explicit_central_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+                elseif disc_method == "explicit-upwind"
+                    E, A = explicit_upwind_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+                elseif disc_method == "implicit-upwind"
+                    E, A = implicit_upwind_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+                elseif disc_method == "implicit-central"
+                    E, A = implicit_central_disc(network, E, A, Δs, s, i, s_p, λ_p, k_t, node_in, node_out, qdir_p)
+                else
+                    @error "Discretization method not recognized."
+                end
+
+            end
+        
+        end
+
+        # solve system of linear equations
+        A_x_t = A * x_t
+        B_u_t = B * b_u[:, t+1]
+        f_x_t = f * x_t
+        x_t_Δt = E \ (A_x_t + B_u_t + f_x_t)
+        # prob = LinearProblem(E, A_x_t + B_u_t + f_x_t)
+        # x_t_Δt = solve(prob, MKLPardisoFactorize()).u
+        # linsolve = init(prob)
+        # x_t_Δt = solve(linsolve)
+
+        x[:, t+1] .= x_t_Δt
+        x_t = x_t_Δt
+
+    end
+
+
+    return x
+
+end
 
 
 """

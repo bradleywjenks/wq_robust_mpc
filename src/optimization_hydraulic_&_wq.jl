@@ -15,7 +15,7 @@ using Gurobi
 using SCIP
 using NLsolve
 using Polynomials
-
+using LinearAlgebra
 
 
 @with_kw mutable struct OptParams
@@ -53,6 +53,8 @@ using Polynomials
     θmin::Union{Matrix{Float64}, Vector{Float64}}
     θmax::Union{Matrix{Float64}, Vector{Float64}}
     x_wq_0::Float64
+    max_pump_switch::Int64 
+    c_elec::Union{Matrix{Float64}, Vector{Float64}}
 end
 
 Base.copy(o::OptParams) = OptParams(
@@ -89,10 +91,10 @@ Base.copy(o::OptParams) = OptParams(
     QA=deepcopy(o.QA),
     θmin=deepcopy(o.θmin),
     θmax=deepcopy(o.θmax),
-    x_wq_0=deepcopy(o.x_wq_0)
+    x_wq_0=deepcopy(o.x_wq_0),
+    max_pump_switch=deepcopy(o.max_pump_switch),
+    c_elec=deepcopy(o.c_elec)
 )
-
-
 
 @with_kw mutable struct OptResults
     q::Matrix{Float64}
@@ -133,7 +135,7 @@ Function for making optimization parameters (hydraulic and water quality), which
     - optimization objective
 
 """
-function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin::Int64=15, pmax::Int64=200, Qmax_mul=1000, Qmin_mul=-1000, x_wq_bounds=(0.5, 3), u_wq_bounds=(0, 5), QA=false, quadratic_approx="relative", J=nothing, kb=0.5, kw=0, x_wq_0=0, obj_type="AZP")
+function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin::Int64=15, pmax::Int64=200, Qmax_mul=1000, Qmin_mul=-1000, x_wq_bounds=(0.5, 3), u_wq_bounds=(0, 5), QA=false, quadratic_approx="relative", J=nothing, kb=0.5, kw=0, x_wq_0=0, obj_type="AZP", max_pump_switch::Int64, c_elec::Union{Matrix{Float64}, Vector{Float64}})
 
     n_t = Int(get_hydraulic_time_steps(network, sim_days, Δk))
     sim_type = "hydraulic"
@@ -268,7 +270,9 @@ function make_prob_data(network::Network, Δt, Δk, sim_days, disc_method; pmin:
         QA=QA,
         θmin=θmin,
         θmax=θmax,
-        x_wq_0=x_wq_0
+        x_wq_0=x_wq_0,
+        max_pump_switch=max_pump_switch,
+        c_elec=c_elec
     )
 end
 
@@ -507,6 +511,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     n_s = sum(s_p)
     kb = (opt_params.kb/3600/24) # units = 1/second
     obj_type = opt_params.obj_type
+    max_pump_switch = opt_params.max_pump_switch
 
     # simulation times
     T = opt_params.T
@@ -516,7 +521,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     Δk = opt_params.Δk
 
     # electricity costs
-    c_elec = ones(n_t,1)
+    c_elec = opt_params.c_elec 
 
     # modify operational data times
     if size(h0, 2) != n_t
@@ -546,7 +551,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         
         ### GUROBI
         model = Model(Gurobi.Optimizer)
-        set_optimizer_attribute(model, "TimeLimit", 60) # 21600) # 6-hour time limit
+        set_optimizer_attribute(model, "TimeLimit", 300) # 21600) # 6-hour time limit
         # set_optimizer_attribute(model,"Method", 2)
         # set_optimizer_attribute(model,"Presolve", 0)
         # set_optimizer_attribute(model,"Crossover", 0)
@@ -607,9 +612,12 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # hydraulic
     @variable(model, Hmin_j[i, k] ≤ h_j[i=1:n_j, k=1:n_t] ≤ Hmax_j[i, k])
     @variable(model, Hmin_tk[i, k] ≤ h_tk[i=1:n_tk, k=1:n_t+1] ≤ Hmax_tk[i, k])
+    #@variable(model, q[i=1:n_l, k=1:n_t])
     @variable(model, Qmin[i, k] ≤ q[i=1:n_l, k=1:n_t] ≤ Qmax[i, k])
     @variable(model, 0 ≤ q⁺[i=1:n_l, k=1:n_t])
     @variable(model, 0 ≤ q⁻[i=1:n_l, k=1:n_t])
+    #@variable(model, q⁺[i=1:n_l, k=1:n_t])
+    #@variable(model, q⁻[i=1:n_l, k=1:n_t])
     # @variable(model, 0 ≤ s[i=1:n_l, k=1:n_t]) # something to do with water quality
     @variable(model, θ[i=1:n_l, k=1:n_t])
     @variable(model, θ⁺[i=1:n_l, k=1:n_t])  
@@ -629,6 +637,10 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         # @constraint(model, flow_complementarity[i=1:n_l, k=1:n_t], z[i, k] * (1 - z[i, k]) ≤ 1e-4)
     end
 
+    if !isempty(pump_idx)
+        @variable(model, 0 ≤ pump_switch[i=1:n_m, k=1:n_t-1] ≤ 1)
+    end
+
 
     # water quality
     # TO BE COMPLETED!!!
@@ -642,7 +654,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         fix.(h_tk[findfirst(x -> x == i, tank_idx), 1], tk_init[findfirst(x -> x == i, tank_idx)]; force=true)
     end
 
-    # engergy conservation
+    # energy conservation
     if !isempty(tank_idx)
         @constraint(model, energy_conservation[i=1:n_l, k=1:n_t], θ[i, k] + sum(A12[i, j]*h_j[j, k] for j ∈ junction_map[i]) + sum(A10_res[i, j]*h0[j, k] for j ∈ reservoir_map[i]) + sum(A10_tank[i, j]*h_tk[j, k] for j ∈ tank_map[i]) == 0.0)
     else
@@ -692,7 +704,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
         # @constraint(model, flow_direction_neg[i=1:n_l, k=1:n_t], q⁻[i, k] ≤ (1 - z[i, k]) * abs(Qmin[i, k]))
     end
 
-    # complementarity constraints for pump status
+    # complementarity constraints for pump status and maximum number of pump switches
     if !isempty(pump_idx)
         if solver == "Gurobi"
             # @constraint(model, pump_status[i=pump_idx, k=1:n_t], [u_m[findfirst(x -> x == i, pump_idx), k], q⁺[i, k]] in SOS1())
@@ -701,6 +713,11 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
             @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  θ⁻[i, k] ≥ -100*(1 - z[i, k]) )
             # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
             # @constraint(model, pump_status_2[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≥ -1e-6)
+            
+            # maximum number of pump switches
+            @constraint(model, max_pump_switch[i=1:n_m], sum(pump_switch[i, k] for k in 1:n_t-1) <= max_pump_switch)
+            @constraint(model, max_pump_switch_ub[i=1:n_m, k=1:n_t-1], pump_switch[i, k] >= z[pump_idx[i], k+1] - z[pump_idx[i], k])  
+            @constraint(model, max_pump_switch_lb[i=1:n_m, k=1:n_t-1], pump_switch[i, k] >= -(z[pump_idx[i], k+1] - z[pump_idx[i], k]))  # Lower bound for the absolute value
         elseif solver ∈ ["Ipopt", "SCIP"]
             @constraint(model, pump_status[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] == 0)
             # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)
@@ -716,6 +733,14 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     # mass conservation
     @constraint(model, mass_conservation[i=1:n_j, k=1:n_t], sum(A12'[i, j]*q[j, k] for j ∈ link_junction_map[i]) == d[i, k])
 
+    #= flow bounds
+    @constraint(model, q_bounds_up[i=1:n_l , k=1:n_t],  q[i, k] ≤ Qmax[i, k] )
+    @constraint(model, q_bounds_lo[i=1:n_l , k=1:n_t],  Qmin[i, k] ≤ q[i, k] )
+    @constraint(model, q_pos_bounds[i=1:n_l , k=1:n_t], 0 ≤ q⁺[i, k] )
+    @constraint(model, q_neg_bounds[i=1:n_l , k=1:n_t], 0 ≤ q⁻[i, k] ) =#
+
+
+
     # water quality...
 
 
@@ -724,14 +749,14 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     if obj_type == "AZP"
         # insert code here...
     elseif obj_type == "cost"
-        #= cost = 0
+        # @objective(model, Min, sum(q[i,k] for i ∈ pump_idx, k ∈ 1:n_t))
+        #=cost = 0
         for k ∈ 1:n_t
             for i ∈ pump_idx
                 cost = cost - Δk*c_elec[k]*9.81*(q⁺[i, k]/1000)*(pump_A[findfirst(x -> x == i, pump_idx)]*(q⁺[i, k]/1000)^2 + pump_B[findfirst(x -> x == i, pump_idx)]*(q⁺[i, k]/1000) + pump_C[findfirst(x -> x == i, pump_idx)])/pump_η
             end
-        end 
-        @objective(model, Min, cost) =#
-        @objective(model, Min, sum(q[i,k] for i ∈ pump_idx, k ∈ 1:n_t))
+        end =#
+        @objective(model, Min, sum(-Δk/3600*c_elec[k]*9.81*(q⁺[i, k]/1000)*θ⁺[i, k]/pump_η for i ∈ pump_idx, k ∈ 1:n_t)) 
         #= from the Matlab code:
         Dh_pumps = -(ap_quad.*q_pumps.^2 + bp_quad.*q_pumps + cp_quad); % Calculate the pump discharge heads.
         efficiencies = 0.78; 
@@ -771,19 +796,14 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
     
     if term_status ∉ accepted_status
 
-        println("Model is infeasible. Computing IIS...")
-    
-
-        conflict = compute_conflict!(model)
-        println("Conflict is: ", conflict)
-
-
         @error "Optimization problem did not converge. Please check the model formulation and solver settings."
 
-        if termination_status(model) == INFEASIBLE 
+        if termination_status(model) ∈ [INFEASIBLE; INFEASIBLE_OR_UNBOUNDED]
+            
             println("Model is infeasible. Computing IIS...")
             compute_conflict!(model)
 
+            # print conflicting constraints
             #conflict_constraint_list = ConstraintRef[]
             for (F, S) in list_of_constraint_types(model)
                 for con in all_constraints(model, F, S)
@@ -793,8 +813,16 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
                     end
                 end
             end
-            # Gurobi.compute_conflict(model.moi_backend.optimizer.model)
-            # MOI.get(model.moi_backend, Gurobi.ConstraintConflictStatus(), con1.index)
+            
+            #= print confilcting bounds
+            #conflicting_bounds = []
+            for var in all_variables(model)
+                if MOI.get(model, MOI.VariableConflictStatus(), var) == MOI.IN_CONFLICT
+                    #push!(conflicting_bounds, ("LowerBound", var))
+                    println(var)
+                end
+            end =#
+            
         end
 
         return OptResults(

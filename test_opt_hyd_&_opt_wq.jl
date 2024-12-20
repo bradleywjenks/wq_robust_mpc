@@ -1,4 +1,4 @@
-##### Baseline scenario 1: optimize hydraulics, run water quality simulation without booster station optimization #####
+##### Baseline scenario 2: optimize hydraulics, then optimize water quality control at booster stations #####
 
 ##### Load dependencies and network data, and optimization parameters #####
 using wq_robust_mpc
@@ -52,8 +52,8 @@ display(fig2)
 display(fig3)
 
 
-##### store optimal schedule/control settings and use for wq simulation #####
-##### wq simulation #####
+##### store optimal schedule/control settings and use for wq optimization #####
+##### wq optimization #####
 
 # solver inputs
 sim_days = 1
@@ -62,31 +62,29 @@ sim_days = 1
 kb = 0.5 # (1/day)
 kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
-source_cl = repeat([0.5], network.n_r)
-control_pattern = "constant" # control pattern of booster stations: "constant", "random", "user-defined"
-booster_control = false # true or false
-if booster_control
-    b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (pressure paced booster)
-else
-    b_loc = nothing
-    b_u = nothing
-end
-# b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (flow paced booster)
+source_cl = repeat([0.5], network.n_r) # or 0.25?
+b_loc, _ = get_booster_inputs(network, net_name, sim_days, Δk, Δt) # booster control locations
 x0 = 0.25 # initial conditions
+x_bounds = (0.2, 4)
+u_bounds = (0, 5)
 
-# EPANET solver
+# optimize water quality
+c_r, c_j, c_tk, c_m, c_v, c_p, u = optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=kb, kw=kw, disc_method=disc_method, x_bounds=x_bounds, u_bounds=u_bounds)
+wq_opt_results = vcat(c_r, c_j, c_tk, c_m, c_v, c_p)
+
+
+# simulate controls u
+b_u = repeat(u, inner=(1,4))
 sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"
-# sim_results = epanet_solver(network, sim_type; sim_days=sim_days, source_cl=source_cl, Δt=Δt, Δk=Δk, x0=x0, kb=kb, kw=kw, b_loc=b_loc, b_u=b_u)
-
-# Water quality solver (from scracth)
 cpu_time = @elapsed begin
     wq_sim_results = wq_solver_fix_hyd(network, opt_results, opt_params, sim_days, Δt, Δk, source_cl, disc_method; kb=kb, kw=kw, x0=x0, b_loc=b_loc, b_u=b_u) 
 end
 
 node_to_plot = network.node_names[end-2]
-fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
+fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=false)
 display(fig4)
 
+plot(0:23,u[1, 1:end]) # check which time step each entry of u covers
 
 ##### Plotting functions #####
 #=

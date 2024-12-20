@@ -10,7 +10,7 @@ include("optimization_hydraulic_&_wq.jl")
 # network.jl
 export load_network, forest_core_decomp
 # simulation.jl
-export epanet_solver, wq_solver, get_booster_inputs, get_hydraulic_time_steps
+export epanet_solver, wq_solver, wq_solver_fix_hyd, get_booster_inputs, get_hydraulic_time_steps
 # optimization_wq.jl
 export optimize_wq
 # optimization_hydraulic_wq.jl

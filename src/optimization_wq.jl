@@ -150,7 +150,8 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
     end
     k_t[end] = k_t[1]
     k_t = Int.(k_t)
-
+    print("This is k_t ")
+    println(k_t)
 
 
     

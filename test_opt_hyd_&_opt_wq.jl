@@ -4,6 +4,7 @@
 using wq_robust_mpc
 using Revise
 using Plots
+using CSV, DataFrames
 
 
 # load network data
@@ -64,7 +65,7 @@ kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
 source_cl = repeat([0.5], network.n_r) # or 0.25?
 b_loc, _ = get_booster_inputs(network, net_name, sim_days, Δk, Δt) # booster control locations
-x0 = 0.25 # initial conditions
+x0 = 0.3 # initial conditions
 x_bounds = (0.2, 4)
 u_bounds = (0, 5)
 
@@ -81,7 +82,7 @@ cpu_time = @elapsed begin
 end
 
 node_to_plot = network.node_names[end-2]
-fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
+fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=false)
 display(fig4)
 
 plot(0:23,u[1, 1:end]) # check which time step each entry of u covers

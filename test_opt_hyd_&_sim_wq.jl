@@ -4,6 +4,7 @@
 using wq_robust_mpc
 using Revise
 using Plots
+using CSV, DataFrames
 
 
 # load network data
@@ -23,9 +24,19 @@ u_wq_bounds = (0, 5)
 x_wq_0 = 0.5 # initial water quality conditions
 J = nothing
 max_pump_switch = 5
-# define different electricity tariff profiles
-# c_elec = ones(network.n_t,1) # constant electricity tariff
-c_elec = [ 99.0; 95.0; 91.0; 87.0; 89.0; 94.0; 109.0; 159.0; 229.0; 220.0; 180.0; 159.0; 156.0; 160.0; 175.0; 206.0; 245.0; 267.0; 253.0; 194.0; 162.0; 132.0; 110.0; 99.0 ]/1000 # Nord Pool UK prices on 13.12.2024 (GBP/kWh), see https://data.nordpoolgroup.com/auction/n2ex/prices?deliveryDate=2024-12-13&currency=GBP&aggregation=DeliveryPeriod&deliveryAreas=UK
+
+# define electricity tariff profile
+electricity_tariff = "constant" # "user-defined"
+if electricity_tariff == "constant"
+    c_elec = ones(network.n_t,1)
+else
+    # "user-defined" tariffs (in GBP/kWh) are extracted from Nord Pool UK prices
+    # see https://data.nordpoolgroup.com/auction/n2ex/prices?deliveryDate=2024-12-13&currency=GBP&aggregation=DeliveryPeriod&deliveryAreas=UK 
+    # - tariff_1 corresponds to the 13.12.2024 
+    tariff = "tariff_1" # "tariff_1", ...
+    df = CSV.read(["electricity_tariffs/" * tariff * ".csv"], DataFrame)  # Load the CSV file into a DataFrame
+    c_elec = df.hourly_electricity_tariff
+end
 opt_params = make_prob_data(network, Δt, Δk, sim_days, disc_method; pmin=pmin, QA=QA, x_wq_bounds=x_wq_bounds, u_wq_bounds=u_wq_bounds, obj_type=obj_type, x_wq_0=x_wq_0, J=J, max_pump_switch=max_pump_switch, c_elec=c_elec);
 
 # run optimization solver
@@ -72,7 +83,7 @@ else
     b_u = nothing
 end
 # b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (flow paced booster)
-x0 = 0.25 # initial conditions
+x0 = 0.3 # initial conditions
 
 # EPANET solver
 sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"
@@ -84,7 +95,7 @@ cpu_time = @elapsed begin
 end
 
 node_to_plot = network.node_names[end-2]
-fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
+fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=false)
 display(fig4)
 
 

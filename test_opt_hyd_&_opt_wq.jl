@@ -69,7 +69,7 @@ x_bounds = (0.2, 4)
 u_bounds = (0, 5)
 
 # optimize water quality
-c_r, c_j, c_tk, c_m, c_v, c_p, u = optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=kb, kw=kw, disc_method=disc_method, x_bounds=x_bounds, u_bounds=u_bounds)
+c_r, c_j, c_tk, c_m, c_v, c_p, u = optimize_wq_fix_hyd(network, opt_results, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=kb, kw=kw, disc_method=disc_method, x_bounds=x_bounds, u_bounds=u_bounds)
 wq_opt_results = vcat(c_r, c_j, c_tk, c_m, c_v, c_p)
 
 
@@ -81,7 +81,7 @@ cpu_time = @elapsed begin
 end
 
 node_to_plot = network.node_names[end-2]
-fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=false)
+fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
 display(fig4)
 
 plot(0:23,u[1, 1:end]) # check which time step each entry of u covers

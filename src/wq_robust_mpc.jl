@@ -12,7 +12,7 @@ export load_network, forest_core_decomp
 # simulation.jl
 export epanet_solver, wq_solver, wq_solver_fix_hyd, get_booster_inputs, get_hydraulic_time_steps
 # optimization_wq.jl
-export optimize_wq
+export optimize_wq, optimize_wq_fix_hyd
 # optimization_hydraulic_wq.jl
 export make_prob_data, optimize_hydraulic_wq, vmax, get_starting_point
 # plotting.jl

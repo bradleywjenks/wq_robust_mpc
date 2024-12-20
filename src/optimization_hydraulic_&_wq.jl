@@ -718,6 +718,11 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams; x_wq_0=0
             @constraint(model, max_pump_switch[i=1:n_m], sum(pump_switch[i, k] for k in 1:n_t-1) <= max_pump_switch)
             @constraint(model, max_pump_switch_ub[i=1:n_m, k=1:n_t-1], pump_switch[i, k] >= z[pump_idx[i], k+1] - z[pump_idx[i], k])  
             @constraint(model, max_pump_switch_lb[i=1:n_m, k=1:n_t-1], pump_switch[i, k] >= -(z[pump_idx[i], k+1] - z[pump_idx[i], k]))  # Lower bound for the absolute value
+
+            #= fix pump status/schedule for testing
+            @constraint(model, pump_schedule1[i=1:n_m, k=1:10], z[pump_idx[i], k] == 1)
+            @constraint(model, pump_schedule2[i=1:n_m, k=11:16], z[pump_idx[i], k] == 0)
+            @constraint(model, pump_schedule3[i=1:n_m, k=17:n_t], z[pump_idx[i], k] == 1) =#
         elseif solver ∈ ["Ipopt", "SCIP"]
             @constraint(model, pump_status[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] == 0)
             # @constraint(model, pump_status_1[i=pump_idx, k=1:n_t],  u_m[findfirst(x -> x == i, pump_idx), k] * q⁺[i, k] ≤ 1e-6)

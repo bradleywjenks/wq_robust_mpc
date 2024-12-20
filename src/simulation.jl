@@ -364,7 +364,8 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     sim_type = "hydraulic"
     sim_results = epanet_solver(network, sim_type; sim_days=sim_days, Δk=Δk)
     k_set = sim_results.timestamp .* 3600
-    # print("k_set is ") println(k_set)
+    #print("k_set is ") 
+    #println(k_set)
     n_t = size(k_set)[1]
 
     # get flow, velocity, demand, and Reynolds number values
@@ -387,12 +388,14 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     q = abs.(q)
     vel = Matrix(sim_results.velocity[:, 2:end])'
     d = Matrix(abs.(sim_results.demand[:, 2:end]))' 
+    
 
     q_p = q[pipe_idx, :]
     q_m = q[pump_idx, :]
     q_v = q[valve_idx, :]
     vel_p = vel[pipe_idx, :]
     Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
+
 
     # update link flow direction
     A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)
@@ -413,6 +416,8 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     h_tk = sim_results.head[!, string.(node_names[tank_idx])]
     lev_tk = h_tk .- repeat(network.elev[tank_idx], 1, n_t)'
     V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')' .* 1000 # convert to L
+    #print("Tank levels are ")
+    #println(V_tk)
 
     # set discretization parameters and variables
     vel_p_max = maximum(vel_p, dims=2)
@@ -425,8 +430,8 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     s_p = floor.(Int, s_p)
     s_p[s_p .== 0] .= 1
     n_s = sum(s_p)
-    print("n_s is worth ")
-    println(n_s)
+    #print("n_s is worth ")
+    #println(n_s)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
     # λ_p[λ_p .> 1] .= 1 # bound λ to [0, 1]
@@ -759,14 +764,14 @@ function wq_solver_fix_hyd(network, hyd_results, opt_params, sim_days, Δt, Δk,
         end
     end
     q = abs.(q)
-    vel = 4*q./(π*network.D.^2)
+    vel = 4*(q/1000)./(π*network.D.^2)
     #vel = Matrix(sim_results.velocity[:, 2:end])'
 
     q_p = q[pipe_idx, :]
     q_m = q[pump_idx, :]
     q_v = q[valve_idx, :]
     vel_p = vel[pipe_idx, :]
-    Re = (4 .* (q_p ./ 1000)) ./ (π .* D_p .* ν)
+    Re = (4 .* (q_p./1000)) ./ (π .* D_p .* ν)
 
     # update link flow direction
     A_inc_0 = repeat(hcat(network.A12, network.A10_res, network.A10_tank), 1, 1, n_t)
@@ -786,6 +791,8 @@ function wq_solver_fix_hyd(network, hyd_results, opt_params, sim_days, Δt, Δk,
     # get tank volumes
     lev_tk = h_tk .- repeat(network.elev[tank_idx], 1, n_t)'
     V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')' .* 1000 # convert to L
+    #print("Tank levels are ")
+    #println(V_tk)
 
     # set discretization parameters and variables
     vel_p_max = maximum(vel_p, dims=2)

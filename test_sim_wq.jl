@@ -30,7 +30,7 @@ else
     b_loc = nothing
     b_u = nothing
 end
-x0 = 0 # initial conditions
+x0 = 0.25 # initial conditions
 
 # EPANET solver
 sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"

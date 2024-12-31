@@ -15,7 +15,7 @@ network = load_network(net_name)
 ##### Simulation functions #####
 
 # solver inputs
-sim_days = 7
+sim_days = 1
 Δk = 60 * 60 # hydraulic time step (default is Δk = 3600 seconds)
 Δt = 15 * 60 # water quality time step (default is Δt = 60 seconds)
 kb = 0.5 # (1/day)
@@ -23,7 +23,7 @@ kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
 source_cl = repeat([0.5], network.n_r)
 control_pattern = "constant" # "constant", "random", "user-defined"
-booster_control = false # true or false
+booster_control = true # true or false
 if booster_control
     b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (pressure paced booster)
 else
@@ -56,7 +56,7 @@ state_to_plot = "chlorine" # "pressure", "head", "demand", "flow", "flowdir", "v
 state_df = getfield(sim_results, Symbol(state_to_plot))
 
 # EPANET plotting only
-time_to_plot = 95
+time_to_plot = 40
 plot_network_sim(network, state_df, state_to_plot; time_to_plot=time_to_plot+1, fig_size=(600, 450), pumps=true, save_fig=true)  # time offset since simulation starts at t = 0
 elements_to_plot = network.node_names[end] # e.g., network.node_names[1:4] or network.link_names[1:4]
 plot_timeseries_sim(network, state_df, state_to_plot, elements_to_plot; fig_size=(700, 350), save_fig=true)

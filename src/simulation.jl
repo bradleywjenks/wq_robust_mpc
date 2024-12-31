@@ -67,7 +67,7 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
     elseif net_name == "Net1" || net_name == "Net1_no_tank"
         b_loc = vcat(network.junction_idx[1])
     elseif net_name == "Net3"
-        b_loc = vcat(network.junction_idx[1], network.junction_idx[8], network.junction_idx[61])
+        b_loc = vcat(network.junction_idx[1], network.junction_idx[8])
     elseif net_name == "2loopsNet"
         b_loc = vcat(network.junction_idx[2], network.junction_idx[5])
     elseif net_name == "Net25"

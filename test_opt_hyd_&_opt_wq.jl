@@ -21,7 +21,7 @@ disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
 obj_type = "cost" # "cost" # "AZP"
 x_wq_bounds = (0.2, 4)
 u_wq_bounds = (0, 5)
-x_wq_0 = 0.5 # initial water quality conditions
+x_wq_0 = 1.0 # trying from Wang, Taha et al. (2021) 0.45 # source water quality conditions
 J = nothing
 max_pump_switch = 5
 # define different electricity tariff profiles
@@ -35,13 +35,14 @@ cpu_time = @elapsed begin
     heuristic = false
     integer = true
     warm_start = false
-    opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic)
+    opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic, optimize_wq=true)
 end 
+
 
 h_tk = opt_results.h_tk;
 q = opt_results.q;
 
-
+#= 
 ###### plotting functions #####
 # network layout
 fig1 = plot_network_layout(network; pumps=true, legend=true, legend_pos=:lc, fig_size=(600, 450), save_fig=false)
@@ -65,9 +66,10 @@ kw = 0 # (m/day)
 disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
 source_cl = repeat([0.5], network.n_r) # or 0.25?
 b_loc, _ = get_booster_inputs(network, net_name, sim_days, Δk, Δt) # booster control locations
-x0 = 0.3 # initial conditions
+x0 = 0.5 # trying from Wang, Taha et al. (2021) + 1.0 at tank # initial conditions
 x_bounds = (0.2, 4)
-u_bounds = (0, 5)
+# but y_ref from Wang, Taha et al. (2021) is 2.0
+u_bounds = (0, 1)
 
 # optimize water quality
 c_r, c_j, c_tk, c_m, c_v, c_p, u = optimize_wq_fix_hyd(network, opt_results, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=kb, kw=kw, disc_method=disc_method, x_bounds=x_bounds, u_bounds=u_bounds)
@@ -85,7 +87,7 @@ node_to_plot = network.node_names[end-2]
 fig4 = plot_wq_solver_comparison(network, [], wq_sim_results, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=false)
 display(fig4)
 
-plot(0:23,u[1, 1:end]) # check which time step each entry of u covers
+plot(0:23,u[1, 1:end]) # check which time step each entry of u covers =#
 
 ##### Plotting functions #####
 #=

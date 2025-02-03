@@ -21,12 +21,12 @@ disc_method = "implicit-upwind" # "explicit-central", "implicit-upwind"
 obj_type = "cost" # "cost" # "AZP"
 x_wq_bounds = (0.2, 4)
 u_wq_bounds = (0, 5)
-x_wq_0 = 0.5 # initial water quality conditions
+x_wq_0 = 1.0 # trying from Wang, Taha et al. (2021) 0.45 # source water quality conditions
 J = nothing
 max_pump_switch = 5
 
 # define electricity tariff profile
-electricity_tariff = "constant" # "user-defined"
+electricity_tariff = "user-defined" #"constant" # 
 if electricity_tariff == "constant"
     c_elec = ones(network.n_t,1)
 else
@@ -83,7 +83,7 @@ else
     b_u = nothing
 end
 # b_loc, b_u = get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_pattern=control_pattern) # booster control locations and settings (flow paced booster)
-x0 = 0.3 # initial conditions
+x0 = 0.32 # initial conditions
 
 # EPANET solver
 sim_type = "chlorine" # "hydraulic", "chlorine", "age``, "trace"

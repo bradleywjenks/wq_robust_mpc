@@ -143,7 +143,9 @@ function optimize_wq(network, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, 
 
     # simulation times
     T = round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
+    print("T is...",T)
     T_k = Int(T / Δt) # number of discrete time steps
+    print("T_k is...",T_k)
     k_t = zeros(1, T_k+1)
     for t ∈ 1:T_k
         k_t[t] = searchsortedfirst(k_set, t*Δt) - 1
@@ -506,6 +508,8 @@ function optimize_wq_fix_hyd(network, hyd_results, sim_days, Δt, Δk, source_cl
     n_s = sum(s_p)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
+    print("The size of vel_p is...", size(vel_p))
+    print("The size of the denominator is...", size(repeat(Δx_p, 1, n_t)))
     λ_p = λ_p .* qdir[pipe_idx, :]
 
     # check CFL condition
@@ -520,7 +524,9 @@ function optimize_wq_fix_hyd(network, hyd_results, sim_days, Δt, Δk, source_cl
 
     # simulation times
     T = (sim_days*n_t)*Δk # round(sim_results.timestamp[end] + (sim_results.timestamp[end] - sim_results.timestamp[end-1]), digits=0) * 3600
+    #print("T is...", T)
     T_k = Int(T / Δt) # number of discrete time steps
+    #print("T_k is...", T_k)
     k_t = zeros(1, T_k+1)
     for t ∈ 1:T_k
         k_t[t] = searchsortedfirst(k_set, t*Δt) - 1

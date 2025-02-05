@@ -35,7 +35,7 @@ cpu_time = @elapsed begin
     heuristic = false
     integer = true
     warm_start = false
-    opt_results = optimize_hydraulic_wq(network, opt_params; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic, optimize_wq=true)
+    opt_results = optimize_hydraulic_wq(network, opt_params, sim_days, Δt, Δk, source_cl, b_loc, x_wq_0; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic, optimize_wq=false)
 end 
 
 

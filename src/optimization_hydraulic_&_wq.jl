@@ -512,9 +512,19 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
     # simulation times
     T = opt_params.T
     k_t = opt_params.k_t
-    n_t = length(k_t)
-    Δt = opt_params.Δt
-    Δk = opt_params.Δk
+    n_t = network.n_t
+    #print("Imported k_t is of size...",size(k_t))
+    #n_t = length(k_t)
+    if optimize_wq
+        T_k = Int(T*3600 / Δt) # number of discrete time steps
+        k_t = zeros(1, T_k+1)
+        k_set = (0:n_t-1) .* 3600
+        for t ∈ 1:T_k
+            k_t[t] = searchsortedfirst(k_set, t*Δt) - 1
+        end
+        k_t[end] = k_t[1]
+        k_t = Int.(k_t)
+    end
 
     if optimize_wq
         # assign constant parameters (copied from optimize_wq_fix_hyd)
@@ -524,7 +534,9 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
         ϵ_reg = 1e-3 # small regularization value to avoid division by zero
 
         # define pipe segments
-        vel_p_max = 4*(max(abs(Qmin),abs(Qmax))/1000)./(π*network.D.^2)
+        vel_p_max = 4*(maximum([abs.(Qmin[pipe_idx,:]) abs.(Qmax[pipe_idx,:])],dims=2)/1000)./(π*network.D[pipe_idx,:].^2)
+        #print("Size of vel_p_max is...",size(vel_p_max))
+        #print("Size of L_p is...",size(L_p))
         s_p = L_p ./ (vel_p_max .* Δt)
         s_p = floor.(Int, s_p)
         s_p[s_p .== 0] .= 1
@@ -537,6 +549,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
 
     # modify operational data times
     if size(h0, 2) != n_t
+        print("h0 is...",h0)
+        print("n_t is...",n_t)
         mult = n_t / size(h0, 2)
         if mult > 1
             h0 = repeat(h0, 1, Int(mult))
@@ -657,7 +671,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
     # water quality variables (copied and pasted from optimize_wq_fix_hyd)
     if optimize_wq
         # tank level variables
-        @variable(model, 0 ≤ V_tk[i=1:n_tk, k=1:n_t])
+        @variable(model, 0 ≤ V_tk[i=1:n_tk, k=1:n_t+1])
         # actual wq variables (chlorine concentrations)
         @variable(model, x_bounds[1] ≤ c_r[i=1:n_r, t=1:T_k+1] ≤ x_bounds[2])
         @variable(model, x_bounds[1] ≤ c_j[i=1:n_j, t=1:T_k+1] ≤ x_bounds[2])
@@ -782,8 +796,10 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
         # define constraints on basic hydraulic variables and new hydraulic variables (required for wq optimization)
         # @constraint(model, qdir .== 2*z - 1)
         #@constraint(model, λ_p_def, λ_p .== (4*((q⁺[pipe_idx,:]+q⁻[pipe_idx,:])/1000)./(π*network.D.^2)) ./ repeat(Δx_p, 1, n_t) .* Δt)
-        @constraint(model, λ⁺_p_def, λ⁺_p .== (4*(q⁺[pipe_idx,:]/1000)./(π*network.D.^2)) ./ repeat(Δx_p, 1, n_t) .* Δt)
-        @constraint(model, λ⁻_p_def, λ⁻_p .== (4*(q⁻[pipe_idx,:]/1000)./(π*network.D.^2)) ./ repeat(Δx_p, 1, n_t) .* Δt)
+        #print("The size of vel_p is...", size((4*(q⁺[pipe_idx,:]/1000)./(π*network.D[pipe_idx,:].^2))))
+        #print("The size of the denominator is...", size(repeat(Δx_p, 1, n_t)))
+        @constraint(model, λ⁺_p_def, λ⁺_p .== (4*(q⁺[pipe_idx,:]/1000)./(π*network.D[pipe_idx,:].^2)) ./ repeat(Δx_p, 1, n_t) .* Δt)
+        @constraint(model, λ⁻_p_def, λ⁻_p .== (4*(q⁻[pipe_idx,:]/1000)./(π*network.D[pipe_idx,:].^2)) ./ repeat(Δx_p, 1, n_t) .* Δt)
         #λ_p = λ_p .* qdir[pipe_idx, :]
         # here, we consider advection-dominant PDE discretization schemes: ignore Re
         #@constraint(model, Re .== (4 .* (q[pipe_idx, :] ./ 1000)) ./ (π .* D[pipe_idx, :] .* ν))
@@ -823,7 +839,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
 
         # junction mass balance
         ϵ_reg = 1e-3
-        @constraint(model, junction_balance[i=1:n_j, t=2:T_k+1],
+        @constraint(model, wq_junction_balance[i=1:n_j, t=2:T_k+1],
             ( c_j[i, t] - u[i, k_t[t-1]] )*(
                 d[i, k_t[t-1]] +
                 sum(q⁻[j, k_t[t-1]] for j in findall(x -> x == 1, A_inc[:, junction_idx[i]])) +
@@ -852,12 +868,17 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
         )
 
         # tank mass balance
-        @constraint(model, tank_balance[i=1:n_tk, t=2:T_k+1],
+        print("n_tk is...", n_tk)
+        print("T_k+1 is...", T_k+1)
+        print("Size of c_tk is...",size(c_tk))
+        print("Size of V_tk is...",size(V_tk))
+        print("Size of k_t is...",size(k_t))
+        @constraint(model, wq_tank_balance[i=1:n_tk, t=2:T_k+1],
             c_tk[i, t]*V_tk[i, k_t[t]] == ( # previous time step
                 c_tk[i, t-1] * V_tk[i, k_t[t-1]] -
                 ( # outflow
-                    c_tk[i, t-1] * Δt * ( sum(q⁻[findall(x -> x == 1, A_inc[:, tank_idx[i]]), k]) 
-                    + sum(q⁺[findall(x -> x == -1, A_inc[:, tank_idx[i]]), k]) )
+                    c_tk[i, t-1] * Δt * ( sum(q⁻[findall(x -> x == 1, A_inc[:, tank_idx[i]])]) 
+                    + sum(q⁺[findall(x -> x == -1, A_inc[:, tank_idx[i]])]) )
                 ) +
                 ( # inflow
                     sum(
@@ -894,7 +915,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
         #= pump mass balance:
         what happens if flow reverses up to pump downstream node? 
         this is not currently handled, but should not occur unless the pump downstream node has a positive demand =#
-        @constraint(model, pump_balance[i=1:n_m, t=2:T_k+1],
+        @constraint(model, wq_pump_balance[i=1:n_m, t=2:T_k+1],
             c_m[i, t] == begin
                 node_idx = findall(x -> x == -1, A_inc[pump_idx[i], :])[1]
                 c_up = node_idx ∈ reservoir_idx ? 
@@ -908,7 +929,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
 
         #= valve mass balance:
         are we talking about non-return valves? can this be ignored for networks without valves, like Net1? =#
-        @constraint(model, valve_balance[i=1:n_v, t=2:T_k+1],
+        @constraint(model, wq_valve_balance[i=1:n_v, t=2:T_k+1],
             c_v[i, t] == begin
                 node_idx = findall(x -> x == -1, A_inc[valve_idx[i], :, k_t[t-1]])[1]
                 c_up = node_idx ∈ reservoir_idx ? 
@@ -1003,15 +1024,15 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
                     i ∈ s_p_start && i ∉ s_p_end ? begin
                     
                         node_idx_start = findall(x -> x == -1, A_inc[pipe_idx[findfirst(x -> x == i, s_p_start)], :])[1]
-                        (node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx_start, reservoir_idx), t] :
-                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx_start, junction_idx), t] :
+                        (node_idx_start ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx_start, reservoir_idx), t] :
+                        node_idx_start ∈ junction_idx ? c_j[findfirst(x -> x == node_idx_start, junction_idx), t] :
                         c_tk[findfirst(x -> x == node_idx_start, tank_idx), t])*λ⁺_p[p, k_t[t-1]] + c_p[i+1, t]*λ⁻_p[p, k_t[t-1]]
 
                     end : i ∉ s_p_start && i ∈ s_p_end ? begin
 
                         node_idx_end = findall(x -> x == 1, A_inc[pipe_idx[findfirst(x -> x == i, s_p_end)], :])[1]
-                        (node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
-                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
+                        (node_idx_end ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
+                        node_idx_end ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
                         c_tk[findfirst(x -> x == node_idx, tank_idx), t])*λ⁻_p[p, k_t[t-1]] + c_p[i-1, t]*λ⁺_p[p, k_t[t-1]]
 
                     end : i ∈ s_p_start && i ∈ s_p_end ? begin
@@ -1019,13 +1040,13 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
                         node_idx_start = findall(x -> x == -1, A_inc[pipe_idx[findfirst(x -> x == i, s_p_start)], :])[1]
                         node_idx_end = findall(x -> x == 1, A_inc[pipe_idx[findfirst(x -> x == i, s_p_end)], :])[1]
 
-                        (node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
-                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
-                        c_tk[findfirst(x -> x == node_idx, tank_idx), t])*λ⁺_p[p, k_t[t-1]] +
+                        (node_idx_start ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx_start, reservoir_idx), t] :
+                        node_idx_start ∈ junction_idx ? c_j[findfirst(x -> x == node_idx_start, junction_idx), t] :
+                        c_tk[findfirst(x -> x == node_idx_start, tank_idx), t])*λ⁺_p[p, k_t[t-1]] +
                         
-                        (node_idx ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx, reservoir_idx), t] :
-                        node_idx ∈ junction_idx ? c_j[findfirst(x -> x == node_idx, junction_idx), t] :
-                        c_tk[findfirst(x -> x == node_idx, tank_idx), t])*λ⁻_p[p, k_t[t-1]] 
+                        (node_idx_end ∈ reservoir_idx ? c_r[findfirst(x -> x == node_idx_end, reservoir_idx), t] :
+                        node_idx_end ∈ junction_idx ? c_j[findfirst(x -> x == node_idx_end, junction_idx), t] :
+                        c_tk[findfirst(x -> x == node_idx_end, tank_idx), t])*λ⁻_p[p, k_t[t-1]] 
                         # : nothing
 
                     end : c_p[i-1, t]*λ⁺_p[p, k_t[t-1]] + c_p[i+1, t]*λ⁻_p[p, k_t[t-1]]

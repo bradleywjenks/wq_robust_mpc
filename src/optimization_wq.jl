@@ -389,8 +389,8 @@ end
 """
 Function for optimizing water quality given known (opt.) hydraulics
 """
-function optimize_wq_fix_hyd(network, hyd_results, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, kw=0.1, disc_method="explicit-central", x_bounds=(0.5, 3), u_bounds=(0, 5))
-
+function optimize_wq_fix_hyd(network, hyd_results, opt_params, sim_days, Δt, Δk, source_cl, b_loc, x0; kb=0.5, kw=0.1, disc_method="explicit-central", x_bounds=(0.5, 3), u_bounds=(0, 5), vel_p_max_def="std") #or "custom"
+    # need to be able to pass link segments information to make sure n_s remains the same (for initialization of joint hyd/wq opt problem)
 
     ##### SET OPTIMIZATION PARAMETERS #####
 
@@ -497,7 +497,13 @@ function optimize_wq_fix_hyd(network, hyd_results, sim_days, Δt, Δk, source_cl
     V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')' .* 1000 # convert to L
 
     # set discretization parameters and variables
-    vel_p_max = maximum(vel_p, dims=2)
+    if vel_p_max_def == "std"
+        vel_p_max = maximum(vel_p, dims=2)
+    elseif vel_p_max_def == "custom"
+        vel_p_max = 4*(maximum([abs.(opt_params.Qmin[pipe_idx,:]) abs.(opt_params.Qmax[pipe_idx,:])],dims=2)/1000)./(π*network.D[pipe_idx,:].^2)
+    else
+        @error "vel_p_max option is not implemented yet."
+    end
     s_p = L_p ./ (vel_p_max .* Δt)
     # if any(s_p .< 0.75)
     #     @error "At least one pipe has discretization step Δx > pipe length. Please input a smaller Δt."
@@ -508,8 +514,8 @@ function optimize_wq_fix_hyd(network, hyd_results, sim_days, Δt, Δk, source_cl
     n_s = sum(s_p)
     Δx_p = L_p ./ s_p
     λ_p = vel_p ./ repeat(Δx_p, 1, n_t) .* Δt
-    print("The size of vel_p is...", size(vel_p))
-    print("The size of the denominator is...", size(repeat(Δx_p, 1, n_t)))
+    #print("The size of vel_p is...", size(vel_p))
+    #print("The size of the denominator is...", size(repeat(Δx_p, 1, n_t)))
     λ_p = λ_p .* qdir[pipe_idx, :]
 
     # check CFL condition
@@ -701,7 +707,11 @@ function optimize_wq_fix_hyd(network, hyd_results, sim_days, Δt, Δk, source_cl
                 λ_i = abs(λ_p[p, k_t[t-1]])
                 kf_i = kf[p, k_t[t-1]]
                 D_i = D_p[p]
-                k_i = kb + ((4 * kw * kf_i) / (D_i * (kw + kf_i)))
+                if vel_p_max_def == "std"
+                    k_i = kb + ((4 * kw * kf_i) / (D_i * (kw + kf_i)))
+                elseif vel_p_max_def == "custom"
+                    k_i = kb 
+                end
                 
                 c_up = i ∈ s_p_start && i ∉ s_p_end ? begin
                     qdir_i == 1 ? begin

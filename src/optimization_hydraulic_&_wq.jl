@@ -482,8 +482,8 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
     pump_η = 0.78 # fixed pump efficiency
 
     # unload optimization parameters
-    disc_method = opt_params.disc_method
-    print(disc_method)
+    #disc_method = opt_params.disc_method
+    #print(disc_method)
     Qmin = opt_params.Qmin
     Qmax = opt_params.Qmax
     Hmin_j = opt_params.Hmin_j
@@ -578,7 +578,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
         
         ### GUROBI
         model = Model(Gurobi.Optimizer)
-        set_optimizer_attribute(model, "TimeLimit", 120) # 21600) # 6-hour time limit
+        set_optimizer_attribute(model, "TimeLimit", 1800) # 21600) # 6-hour time limit
         # set_optimizer_attribute(model,"Method", 2)
         # set_optimizer_attribute(model,"Presolve", 0)
         # set_optimizer_attribute(model,"Crossover", 0)
@@ -818,7 +818,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
 
         # junction mass balance
         ϵ_reg = 1e-3
-        #=@constraint(model, wq_junction_balance[i=1:n_j, t=2:T_k+1],
+        @constraint(model, wq_junction_balance[i=1:n_j, t=2:T_k+1],
             ( c_j[i, t] - u[i, k_t[t-1]] )*(
                 d[i, k_t[t-1]] +
                 sum(q⁻[j, k_t[t-1]] for j in findall(x -> x == 1, A_inc[:, junction_idx[i]])) +
@@ -844,10 +844,10 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
                         c_v[findfirst(x -> x == j, valve_idx), t]
                 ) for j in findall(x -> x == -1, A_inc[:, junction_idx[i]])
             )
-        )=#
+        )
 
         # tank mass balance
-        #= @constraint(model, wq_tank_balance[i=1:n_tk, t=2:T_k+1],
+        #=@constraint(model, wq_tank_balance[i=1:n_tk, t=2:T_k+1],
             c_tk[i, t]*V_tk[i, k_t[t]] == ( # previous time step
                 c_tk[i, t-1] * V_tk[i, k_t[t-1]] -
                 ( # outflow
@@ -884,12 +884,12 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
                     -1 * c_tk[i, t-1] * kb * V_tk[i, k_t[t-1]] * Δt
                 )
             )
-        ) =#
+        )=#
 
         #= pump mass balance:
         what happens if flow reverses up to pump downstream node? 
         this is not currently handled, but should not occur unless the pump downstream node has a positive demand =#
-        #= @constraint(model, wq_pump_balance[i=1:n_m, t=2:T_k+1],
+        @constraint(model, wq_pump_balance[i=1:n_m, t=2:T_k+1],
             c_m[i, t] == begin
                 node_idx = findall(x -> x == -1, A_inc[pump_idx[i], :])[1]
                 c_up = node_idx ∈ reservoir_idx ? 
@@ -899,11 +899,11 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
                         c_tk[findfirst(x -> x == node_idx, tank_idx), t]
                 c_up # *z[pump_idx[i],k_t[t-1]] 
             end # + term for when flow reverses all the way back up to pump downstream node?
-        ) =#
+        )
 
         #= valve mass balance:
         are we talking about non-return valves? can this be ignored for networks without valves, like Net1? =#
-        #= @constraint(model, wq_valve_balance[i=1:n_v, t=2:T_k+1],
+        @constraint(model, wq_valve_balance[i=1:n_v, t=2:T_k+1],
             c_v[i, t] == begin
                 node_idx = findall(x -> x == -1, A_inc[valve_idx[i], :, k_t[t-1]])[1]
                 c_up = node_idx ∈ reservoir_idx ? 
@@ -913,7 +913,7 @@ function optimize_hydraulic_wq(network::Network, opt_params::OptParams, sim_days
                         c_tk[findfirst(x -> x == node_idx, tank_idx), t]
                 c_up # * (1-z[findall(x -> x == -1, A_inc[valve_idx[i], :]]) + * z[findall(x -> x == 1, A_inc[valve_idx[i], :]]
             end
-        ) =#
+        )
 
 
         # pipe segment transport

@@ -38,7 +38,7 @@ cpu_time = @elapsed begin
     heuristic = false
     integer = true
     warm_start = false
-    opt_results = optimize_hydraulic_wq(network, opt_params, sim_days, Δt, Δk, source_cl, b_loc, x_wq_0; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic, optimize_wq=false, kb=kb, kw=kw, disc_method="implicit-upwind", x_bounds=x_wq_bounds, u_bounds=u_wq_bounds)
+    opt_results = optimize_hydraulic_wq(network, opt_params, sim_days, Δt, Δk, source_cl, b_loc, x_wq_0; x_wq_0=x_wq_0, solver=solver, integer=integer, warm_start=warm_start, heuristic=heuristic, optimize_wq=true, kb=kb, kw=kw, disc_method="implicit-upwind", x_bounds=x_wq_bounds, u_bounds=u_wq_bounds)
 end
 
 #= plot(opt_results.θ⁻[network.pump_idx[1], :])

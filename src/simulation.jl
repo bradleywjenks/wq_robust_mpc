@@ -78,13 +78,17 @@ function get_booster_inputs(network, net_name, sim_days, Δk, Δt; control_patte
         b_loc = []
     elseif net_name == "L-town"
         b_loc = []
+    elseif net_name == "demo"
+        b_loc = vcat(network.junction_idx[1])
     else
         b_loc = nothing
         @error "Network name not recognized."
     end
 
     if control_pattern == "constant"
-        b_u = repeat([1.5], length(b_loc), T_k)
+        b_u = hcat(repeat([1.25], length(b_loc), Int(T_k/2)), repeat([0.8], length(b_loc), Int(T_k/2)))
+        # b_u = hcat(repeat([1.25], length(b_loc), Int(T_k/2 - 16)), repeat([0.4], length(b_loc), 24), repeat([1.0], length(b_loc), Int(T_k/2 - 8)))
+        # b_u = repeat([1.5], length(b_loc), T_k)
     elseif control_pattern == "random"
         μ = 1.5
         σ = 0.1
@@ -121,7 +125,7 @@ function epanet_solver(network::Network, sim_type; prv_settings=nothing, afv_set
     wn.options.time.hydraulic_timestep = Δk # hydraulic time step
     wn.options.time.quality_timestep = Δt # water quality time step
     wn.options.time.report_timestep = Δk # reporting time step
-    wn.options.time.pattern_timestep = Δk # pattern time step
+    wn.options.time.pattern_timestep = Δt # pattern time step
 
     # # function for setting PRV settings
     # wn = set_pcv_settings(wntr, wn, network, prv_settings)
@@ -364,6 +368,7 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     sim_results = epanet_solver(network, sim_type; sim_days=sim_days, Δk=Δk)
     k_set = sim_results.timestamp .* 3600
     n_t = size(k_set)[1]
+    print(n_t)
 
     # get flow, velocity, demand, and Reynolds number values
     q = Matrix((sim_results.flow[:, 2:end]))'
@@ -408,9 +413,11 @@ function wq_solver(network, sim_days, Δt, Δk, source_cl, disc_method; kb=0.5, 
     end
 
     # get tank volumes
-    h_tk = sim_results.head[!, string.(node_names[tank_idx])]
-    lev_tk = h_tk .- repeat(network.elev[tank_idx], 1, n_t)'
-    V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')' .* 1000 # convert to L
+    if n_tk != 0
+        h_tk = sim_results.head[!, string.(node_names[tank_idx])]
+        lev_tk = h_tk .- repeat(network.elev[tank_idx], 1, n_t)'
+        V_tk = Matrix(lev_tk .* repeat(network.tank_area, 1, n_t)')' .* 1000 # convert to L
+    end
 
     # set discretization parameters and variables
     vel_p_max = maximum(vel_p, dims=2)

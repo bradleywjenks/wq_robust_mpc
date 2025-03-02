@@ -1,0 +1,7 @@
+index,node_id,node_type,elev,xcoord,ycoord
+1,J1,junction,50.0,3000.0,7339.25
+2,J2,junction,40.0,2170.0,6507.76
+3,J3,junction,35.0,3830.0,6507.76
+4,J4,junction,30.0,3000.0,5676.27
+5,J5,junction,40.0,3000.0,4722.84
+6,R1,reservoir,0,2998.89,8292.68

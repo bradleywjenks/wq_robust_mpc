@@ -54,10 +54,10 @@ const NETWORK_PATH = pwd() * "/networks/"
     prv_names::Vector{Union{String,Int64}}
     X_coord::Vector{Float64}
     Y_coord::Vector{Float64}
-    link_name_to_idx::Dict{Union{String31,String15,String7,Int64},Int64}
-    node_name_to_idx::Dict{Union{String31,String15,String7,Int64},Int64}
-    link_names::Vector{Union{String31,String15,String7,Int64}}
-    node_names::Vector{Union{String31,String15,String7,Int64}}
+    link_name_to_idx::Dict{Union{String3, String31,String15,String7,Int64},Int64}
+    node_name_to_idx::Dict{Union{String3, String31,String15,String7,Int64},Int64}
+    link_names::Vector{Union{String3, String31,String15,String7,Int64}}
+    node_names::Vector{Union{String3, String31,String15,String7,Int64}}
     A21::SparseArrays.SparseMatrixCSC{Int64,Int64} = A12'
     A = hcat(A12, A10_res, A10_tank)
     B_prv::Vector{Int64}

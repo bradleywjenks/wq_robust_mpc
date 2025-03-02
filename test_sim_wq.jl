@@ -4,7 +4,7 @@ using Revise
 using Plots
 
 
-net_name = "Net1" # "Threenode", "Net1", "Net3"
+net_name = "demo" # "Threenode", "Net1", "Net3", "demo"
 network = load_network(net_name)
 
 
@@ -17,11 +17,11 @@ network = load_network(net_name)
 # solver inputs
 sim_days = 1
 Δk = 60 * 60 # hydraulic time step (default is Δk = 3600 seconds)
-Δt = 15 * 60 # water quality time step (default is Δt = 60 seconds)
+Δt = 5 * 60 # water quality time step (default is Δt = 60 seconds)
 kb = 0.5 # (1/day)
-kw = 0 # (m/day)
+kw = 0.0 # (m/day)
 disc_method = "implicit-upwind" # "implicit-upwind", "explicit-central", "explicit-upwind"
-source_cl = repeat([0.5], network.n_r)
+source_cl = repeat([0], network.n_r)
 control_pattern = "constant" # "constant", "random", "user-defined"
 booster_control = true # true or false
 if booster_control

@@ -12,7 +12,7 @@ import sys
 if len(sys.argv) > 1:
     net_name = sys.argv[1]
 else:
-    net_name = "Threenode" # "Threenode", "Net1", "Net3"
+    net_name = "demo" # "Threenode", "Net1", "Net3", "demo"
 
 print(f"Reading network data for {net_name}...")
 

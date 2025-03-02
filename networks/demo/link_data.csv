@@ -1,0 +1,7 @@
+index,link_id,link_type,diameter,length,n_exp,C,status,node_out,node_in
+1,L1,pipe,0.4,1000.0,1.852,70.0,Open,R1,J1
+2,L2,pipe,0.3,1000.0,1.852,100.0,Open,J1,J2
+3,L3,pipe,0.25,1000.0,1.852,60.0,Open,J1,J3
+4,L4,pipe,0.3,1000.0,1.852,100.0,Open,J2,J4
+5,L5,pipe,0.25,1000.0,1.852,60.0,Open,J3,J4
+6,L6,pipe,0.15,1000.0,1.852,75.0,Open,J4,J5

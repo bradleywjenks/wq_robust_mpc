@@ -4,8 +4,9 @@ Collection of plotting functions.
 
 using GraphPlot
 using Graphs
-using GraphMakie
-using CairoMakie
+# using GraphMakie
+# using CairoMakie
+using PGFPlotsX
 using Colors
 using ColorSchemes
 using LaTeXStrings
@@ -13,6 +14,12 @@ using DataFrames
 using Statistics
 
 # julia_colors = Colors.JULIA_LOGO_COLORS
+
+### define colours ###
+begin
+    cBlue = colorant"#0072b2"
+    cOrange = colorant"#e69f00"
+end
 
 
 """
@@ -612,10 +619,28 @@ Function to plot comparison between EPANET and water quality solver results
 """
 function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_method, Δt, Δk; fig_size=(700, 350), save_fig=true)
 
+    net_name = network.name
+    x = state_df.timestamp
+
     # organize wq_solver results
     c_r = c[1:network.n_r, :]
     c_j = c[network.n_r+1:network.n_r+network.n_j, :]
     c_tk = c[network.n_r+network.n_j+1:network.n_r+network.n_j+network.n_tk, :]
+
+    node_idx = network.node_name_to_idx[node_to_plot]
+    if node_idx in network.reservoir_idx
+        plot_idx = findfirst(x -> x == node_idx, network.reservoir_idx)
+        y_solver = c_r[plot_idx, :]
+    elseif node_idx in network.junction_idx
+        plot_idx = findfirst(x -> x == node_idx, network.junction_idx)
+        y_solver = c_j[plot_idx, :]
+    else
+        plot_idx = findfirst(x -> x == node_idx, network.tank_idx)
+        y_solver = c_tk[plot_idx, :]
+    end
+
+    # organize EPANET results
+    y_epanet = state_df[!, string(node_to_plot)]
 
     if disc_method == "explicit-central"
         disc_method = "Explicit Central"
@@ -627,62 +652,111 @@ function plot_wq_solver_comparison(network, state_df, c, node_to_plot, disc_meth
         disc_method = "Implicit Central"
     end
 
-    ylabel = "Chlorine [mg/L]"
-    ymin = minimum(state_df[!, string.(node_to_plot)])
-    ymin = 0.1 * floor(ymin / 0.1)
-    ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
-    ymax = 0.1 * ceil(ymax / 0.1)
-    xmax = 6 * ceil(maximum(state_df.timestamp) / 6)
-    # xmax = round(maximum(state_df.timestamp), digits=0)
-
-
-
-    f = Figure(size=fig_size)
-    ax = Axis(f[1, 1],
-        title = "Node " * string(node_to_plot),
-        # titlefont = "normal",
-        xlabel = "Time [h]",
-        ylabel = ylabel,
-        titlesize = 16,
-        xlabelsize = 16,
-        ylabelsize = 16,
-        xticks = 0:xmax/4:xmax,
-        # yticks= ymin:(ymax-ymin)/4:ymax,
-    )
-    ylims!(low=ymin, high=ymax)
-    xlims!(low=0, high=xmax)
-    x = state_df.timestamp
-
-    # EPANET solver results
-    epanet = lines!(ax, x, state_df[!, string(node_to_plot)], label="EPANET", linewidth=1.5)
-
-    # wq_solver results
-    node_idx = network.node_name_to_idx[node_to_plot]
-    if node_idx in network.reservoir_idx
-        plot_idx = findfirst(x -> x == node_idx, network.reservoir_idx)
-        y = c_r[plot_idx, :]
-    elseif node_idx in network.junction_idx
-        plot_idx = findfirst(x -> x == node_idx, network.junction_idx)
-        y = c_j[plot_idx, :]
-    else
-        plot_idx = findfirst(x -> x == node_idx, network.tank_idx)
-        y = c_tk[plot_idx, :]
+    begin
+        @pgf solver_plot = Axis(
+            {
+                # xmajorgrids, # show grids along x axis
+                # ymajorgrids, # show grids along y axis
+                title = L"Node J$4$, $\Delta t = 300$ s",
+                ylabel = "Disinfectant [mg/L]",
+                xlabel = "Time [h]",
+                xmin = 0,
+                xmax = 24,
+                xtick = "{0, 6, ..., 24}",
+                ymin = 0,
+                ymax = 1.5,
+                ytick = "{0.0, 0.5, 1.0, 1.5}",
+                tick_style = "black",
+                legend_pos = "south east",
+                label_style = "{font=\\Large}",
+                tick_label_style = "{font=\\large}",
+                legend_style = "{font=\\large}",
+                title_style = "{font=\\Large}",
+                width = "8cm",
+                height = "6cm",
+            },
+        PlotInc(
+            {
+                style = "solid, very thick",
+                mark = "none",
+                color = cBlue,
+            },
+            Coordinates(x, y_epanet)
+        ), 
+        LegendEntry("EPANET"),
+        PlotInc(
+            {
+                style = "solid, very thick",
+                mark = "none",
+                color = cOrange,
+            },
+            Coordinates(x, y_solver)
+        ), 
+        LegendEntry("Implicit upwind"),
+        )
+        pgfsave("plots/"*net_name*"_"*string(Δt)*"_solver_comparison.pdf", solver_plot)
+        pgfsave("plots/"*net_name*"_"*string(Δt)*"_solver_comparison.svg", solver_plot)
+        pgfsave("plots/"*net_name*"_"*string(Δt)*"_solver_comparison.tex", solver_plot; include_preamble=false)
+        solver_plot
     end
-    wq_solver = lines!(ax, x, y, label=disc_method, linewidth=1.5)
+    return solver_plot
 
-    dummy = lines!(x, y, color=:white, linewidth=0.0)
+    # ylabel = "Chlorine [mg/L]"
+    # ymin = minimum(state_df[!, string.(node_to_plot)])
+    # ymin = 0.1 * floor(ymin / 0.1)
+    # ymax = 1.1 * maximum(state_df[!, string.(node_to_plot)])
+    # ymax = 0.1 * ceil(ymax / 0.1)
+    # xmax = 6 * ceil(maximum(state_df.timestamp) / 6)
+    # # xmax = round(maximum(state_df.timestamp), digits=0)
 
 
-    # add legend
-    f[1, 2] = axislegend(ax, [epanet, wq_solver], ["EPANET", disc_method], "Δt="*string(Δt)*" s, Δk="*string(Δk)*" s", position = :rt, labelsize=14, framevisible=false, titlefont="normal")
-    # axislegend(ax, [epanet, wq_solver, dummy], ["EPANET", disc_method, "(Δt="*string(Δt)*", Δk="*string(Δk)*" s)"], position = :rt, labelsize=14, framevisible=false)
-    # f[1, 2] = axislegend(legend_title, labelsize=14, framevisible=false, position=:rt, fontstyle="normal")
 
-    if save_fig
-        save(pwd() * "/plots/" * network.name * "_node_" * string(node_to_plot) * "_solver_comparison_Δt_" * string(Δt) * "_Δk_" * string(Δk) * ".pdf", f)
-    end
+    # f = Figure(size=fig_size)
+    # ax = Axis(f[1, 1],
+    #     title = "Node " * string(node_to_plot),
+    #     # titlefont = "normal",
+    #     xlabel = "Time [h]",
+    #     ylabel = ylabel,
+    #     titlesize = 16,
+    #     xlabelsize = 16,
+    #     ylabelsize = 16,
+    #     xticks = 0:xmax/4:xmax,
+    #     # yticks= ymin:(ymax-ymin)/4:ymax,
+    # )
+    # ylims!(low=ymin, high=ymax)
+    # xlims!(low=0, high=xmax)
+    # x = state_df.timestamp
 
-    return f
+    # # EPANET solver results
+    # epanet = lines!(ax, x, state_df[!, string(node_to_plot)], label="EPANET", linewidth=1.5)
+
+    # # wq_solver results
+    # node_idx = network.node_name_to_idx[node_to_plot]
+    # if node_idx in network.reservoir_idx
+    #     plot_idx = findfirst(x -> x == node_idx, network.reservoir_idx)
+    #     y = c_r[plot_idx, :]
+    # elseif node_idx in network.junction_idx
+    #     plot_idx = findfirst(x -> x == node_idx, network.junction_idx)
+    #     y = c_j[plot_idx, :]
+    # else
+    #     plot_idx = findfirst(x -> x == node_idx, network.tank_idx)
+    #     y = c_tk[plot_idx, :]
+    # end
+    # wq_solver = lines!(ax, x, y, label=disc_method, linewidth=1.5)
+
+    # dummy = lines!(x, y, color=:white, linewidth=0.0)
+
+
+    # # add legend
+    # f[1, 2] = axislegend(ax, [epanet, wq_solver], ["EPANET", disc_method], "Δt="*string(Δt)*" s, Δk="*string(Δk)*" s", position = :rt, labelsize=14, framevisible=false, titlefont="normal")
+    # # axislegend(ax, [epanet, wq_solver, dummy], ["EPANET", disc_method, "(Δt="*string(Δt)*", Δk="*string(Δk)*" s)"], position = :rt, labelsize=14, framevisible=false)
+    # # f[1, 2] = axislegend(legend_title, labelsize=14, framevisible=false, position=:rt, fontstyle="normal")
+
+    # if save_fig
+    #     save(pwd() * "/plots/" * network.name * "_node_" * string(node_to_plot) * "_solver_comparison_Δt_" * string(Δt) * "_Δk_" * string(Δk) * ".pdf", f)
+    # end
+
+    # return f
 
 
 end
